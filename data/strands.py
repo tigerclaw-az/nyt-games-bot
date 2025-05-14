@@ -1,6 +1,7 @@
 import os, re
 from datetime import date
 from data.base_data_handler import BaseDatabaseHandler
+from models.base_game import PuzzleName
 from models.strands import StrandsPuzzleEntry
 from utils.bot_utilities import BotUtilities
 
@@ -12,12 +13,7 @@ class StrandsDatabaseHandler(BaseDatabaseHandler):
         # puzzles
         self._arbitrary_date = date(2024, 3, 5)
         self._arbitrary_date_puzzle = 2
-
-        # mysql connection
-        self._mysql_host = os.environ.get('STRANDS_MYSQL_HOST', None)
-        self._mysql_user = os.environ.get('STRANDS_MYSQL_USER', "root")
-        self._mysql_pass = os.environ.get('STRANDS_MYSQL_PASS', "")
-        self._mysql_db_name = os.environ.get('STRANDS_MYSQL_DB_NAME', "strands")
+        self.puzzle_name = PuzzleName.STRANDS
 
     ####################
     #  PUZZLE METHODS  #
@@ -48,8 +44,8 @@ class StrandsDatabaseHandler(BaseDatabaseHandler):
             return True
         else:
             self._cur.execute(
-                "insert into entries (puzzle_id, user_id, hints, puzzle_str) "
-                    + f"values ({puzzle_id}, {user_id}, {hints}, '{puzzle}')"
+                "insert into entries (puzzle_id, puzzle_name, user_id, hints, puzzle_str) "
+                    + f"values ({puzzle_id}, {PuzzleName.STRANDS}, {user_id}, {hints}, '{puzzle}')"
             )
             self._db.commit()
             return self._cur.rowcount > 0
@@ -62,7 +58,7 @@ class StrandsDatabaseHandler(BaseDatabaseHandler):
         if not self._db.is_connected():
             self.connect()
         if not puzzle_list or len(puzzle_list) == 0:
-            query = f"select puzzle_id, hints, puzzle_str from entries where user_id = {user_id}"
+            query = f"select puzzle_id, hints, puzzle_str from entries where user_id = {user_id} AND puzzle_name = {PuzzleName.STRANDS}"
         else:
             puzzle_list_str = ','.join([str(p_id) for p_id in puzzle_list])
             query = f"select puzzle_id, hints, puzzle_str from entries where user_id = {user_id} and puzzle_id in ({puzzle_list_str})"

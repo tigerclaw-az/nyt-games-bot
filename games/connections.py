@@ -12,7 +12,7 @@ from utils.bot_utilities import BotUtilities
 
 class ConnectionsCommandHandler(BaseCommandHandler):
     def __init__(self, utils: BotUtilities) -> None:
-        super().__init__(utils, ConnectionsDatabaseHandler(utils))
+      super().__init__(utils, ConnectionsDatabaseHandler(utils))
 
     ######################
     #   MEMBER METHODS   #
@@ -56,10 +56,10 @@ class ConnectionsCommandHandler(BaseCommandHandler):
                 explanation_str = f"Week of {self.utils.convert_date_to_str(query_date)}"
                 query_type = PuzzleQueryType.MULTI_PUZZLE
             else:
-                await ctx.reply("Query date is not a Sunday. Try `?help ranks`.")
+                await ctx.reply("Query date is not a Sunday. Try `/help ranks`.")
                 return
         else:
-            await ctx.reply("Couldn't understand your command. Try `?help ranks`.")
+            await ctx.reply("Couldn't understand your command. Try `/help ranks`.")
             return
 
         stats: list[ConnectionsPlayerStats] = []
@@ -159,7 +159,7 @@ class ConnectionsCommandHandler(BaseCommandHandler):
         elif len(args) == 1 and self.utils.is_user(args[0]):
             user_id = args[0].strip("<@!> ")
         else:
-            await ctx.reply("Couldn't understand command. Try `?help entries`.")
+            await ctx.reply("Couldn't understand command. Try `/help entries`.")
             return
 
         if user_id in self.db.get_all_players():
@@ -186,10 +186,10 @@ class ConnectionsCommandHandler(BaseCommandHandler):
                 if re.match(r'^[#]?\d+$', arg):
                     puzzle_ids.append(int(arg.strip("# ")))
                 else:
-                    await ctx.reply(f"Couldn't understand command. Try `?help view`.")
+                    await ctx.reply(f"Couldn't understand command. Try `/help view`.")
                     return
         else:
-            await ctx.reply(f"Couldn't understand command. Try `?help view`.")
+            await ctx.reply(f"Couldn't understand command. Try `/help view`.")
             return
 
         puzzle_ids.sort()

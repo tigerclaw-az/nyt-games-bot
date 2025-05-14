@@ -2,6 +2,7 @@ import os, re
 from collections import Counter
 from datetime import date
 from data.base_data_handler import BaseDatabaseHandler
+from models.base_game import PuzzleName
 from models.connections import ConnectionsPuzzleEntry
 from utils.bot_utilities import BotUtilities
 
@@ -13,12 +14,7 @@ class ConnectionsDatabaseHandler(BaseDatabaseHandler):
         # puzzles
         self._arbitrary_date = date(2024, 1, 7)
         self._arbitrary_date_puzzle = 210
-
-        # mysql connection
-        self._mysql_host = os.environ.get('CONNECTIONS_MYSQL_HOST', None)
-        self._mysql_user = os.environ.get('CONNECTIONS_MYSQL_USER', "root")
-        self._mysql_pass = os.environ.get('CONNECTIONS_MYSQL_PASS', "")
-        self._mysql_db_name = os.environ.get('CONNECTIONS_MYSQL_DB_NAME', "connections")
+        self.puzzle_name = PuzzleName.CONNECTIONS
 
     ####################
     #  PUZZLE METHODS  #
@@ -49,8 +45,8 @@ class ConnectionsDatabaseHandler(BaseDatabaseHandler):
             return True
         else:
             self._cur.execute(
-                "insert into entries (puzzle_id, user_id, score, puzzle_str) "
-                    + f"values ({puzzle_id}, {user_id}, {score}, '{puzzle}')"
+                "insert into entries (puzzle_id, puzzle_name, user_id, score, puzzle_str) "
+                    + f"values ({puzzle_id}, {self.puzzle_name}, {user_id}, {score}, '{puzzle}')"
             )
             self._db.commit()
             return self._cur.rowcount > 0
@@ -63,7 +59,7 @@ class ConnectionsDatabaseHandler(BaseDatabaseHandler):
         if not self._db.is_connected():
             self.connect()
         if not puzzle_list or len(puzzle_list) == 0:
-            query = f"select puzzle_id, score, puzzle_str from entries where user_id = {user_id}"
+            query = f"select puzzle_id, score, puzzle_str from entries where user_id = {user_id} and puzzle_name = {self.puzzle_name}"
         else:
             puzzle_list_str = ','.join([str(p_id) for p_id in puzzle_list])
             query = f"select puzzle_id, score, puzzle_str from entries where user_id = {user_id} and puzzle_id in ({puzzle_list_str})"

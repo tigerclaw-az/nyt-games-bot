@@ -1,6 +1,6 @@
 import statistics as stats
 from data.base_data_handler import BaseDatabaseHandler
-from models.base_game import BasePlayerStats, BasePuzzleEntry
+from models.base_game import BasePlayerStats, BasePuzzleEntry, PuzzleName
 
 class WordlePlayerStats(BasePlayerStats):
     # wordle-specific stats
@@ -12,6 +12,7 @@ class WordlePlayerStats(BasePlayerStats):
 
     def __init__(self, user_id: str, puzzle_list: list[int], db: BaseDatabaseHandler) -> None:
         self.user_id = user_id
+        self.puzzle_name = PuzzleName.WORDLE
 
         player_puzzles = db.get_puzzles_by_player(self.user_id)
         player_entries: list[WordlePuzzleEntry] = db.get_entries_by_player(self.user_id, puzzle_list)
@@ -44,6 +45,7 @@ class WordlePuzzleEntry(BasePuzzleEntry):
 
     def __init__(self, puzzle_id: int, user_id: str, score: int, green: int, yellow: int, other: int) -> None:
         self.puzzle_id = puzzle_id
+        self.puzzle_name = PuzzleName.WORDLE
         self.user_id = user_id
         self.score = score
         self.green = green

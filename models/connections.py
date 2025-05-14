@@ -1,6 +1,6 @@
 import statistics as stats
 from data.base_data_handler import BaseDatabaseHandler
-from models.base_game import BasePlayerStats, BasePuzzleEntry
+from models.base_game import BasePlayerStats, BasePuzzleEntry, PuzzleName
 
 class ConnectionsPlayerStats(BasePlayerStats):
     # connections-specific stats
@@ -9,6 +9,7 @@ class ConnectionsPlayerStats(BasePlayerStats):
 
     def __init__(self, user_id: str, puzzle_list: list[int], db: BaseDatabaseHandler) -> None:
         self.user_id = user_id
+        self.puzzle_name = PuzzleName.CONNECTIONS
 
         player_puzzles = db.get_puzzles_by_player(self.user_id)
         player_entries: list[ConnectionsPuzzleEntry] = db.get_entries_by_player(self.user_id, puzzle_list)
@@ -33,6 +34,7 @@ class ConnectionsPuzzleEntry(BasePuzzleEntry):
 
     def __init__(self, puzzle_id: int, user_id: str, score: int, puzzle_str: str) -> None:
         self.puzzle_id = puzzle_id
+        self.puzzle_name = PuzzleName.CONNECTIONS
         self.user_id = user_id
         self.score = score
         self.puzzle_str = puzzle_str

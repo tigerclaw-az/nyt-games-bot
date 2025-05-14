@@ -1,7 +1,9 @@
 from datetime import date
+import os
 from typing import Protocol
 from mysql.connector import MySQLConnection, connect
 from mysql.connector.cursor import MySQLCursor
+from models.base_game import PuzzleName
 from utils.bot_utilities import BotUtilities
 
 class BaseDatabaseHandler(Protocol):
@@ -19,6 +21,11 @@ class BaseDatabaseHandler(Protocol):
         self._utils = utils
         self._db = None
         self._cur = None
+
+        self._mysql_host = os.environ.get('NYT_MYSQL_HOST', None)
+        self._mysql_user = os.environ.get('NYT_MYSQL_USER', "root")
+        self._mysql_pass = os.environ.get('NYT_MYSQL_PASS', "")
+        self._mysql_db_name = os.environ.get('NYT_MYSQL_DB_NAME', "")
 
     ####################
     # ABSTRACT METHODS #
@@ -54,6 +61,9 @@ class BaseDatabaseHandler(Protocol):
         if not self._mysql_host:
             raise Exception("Environment variable for MySQL HOST cannot be empty/null")
 
+        if self._db and self._db.is_connected():
+            return
+
         self._db = connect(
             host=self._mysql_host,
             user=self._mysql_user,
@@ -78,7 +88,7 @@ class BaseDatabaseHandler(Protocol):
     def get_all_puzzles(self) -> list[int]:
         if not self._db.is_connected():
             self.connect()
-        self._cur.execute("select distinct puzzle_id from entries")
+        self._cur.execute(f"select distinct puzzle_id from entries where puzzle_name = {self.puzzle_name}")
         return [row[0] for row in self._cur.fetchall()]
 
     ####################
@@ -94,7 +104,7 @@ class BaseDatabaseHandler(Protocol):
     def get_puzzles_by_player(self, user_id) -> list[int]:
         if not self._db.is_connected():
             self.connect()
-        self._cur.execute(f"select distinct puzzle_id from entries where user_id = {user_id}")
+        self._cur.execute(f"select distinct puzzle_id from entries where user_id = {user_id} AND puzzle_name = {self.puzzle_name}")
         return [row[0] for row in self._cur.fetchall()]
 
     def get_players_by_puzzle_id(self, puzzle_id: int) -> list[str]:
@@ -103,5 +113,5 @@ class BaseDatabaseHandler(Protocol):
         self._cur.execute(f"select distinct user_id from entries where puzzle_id = {puzzle_id}")
         return [row[0] for row in self._cur.fetchall()]
 
-    def get_entries_by_player(self, user_id: str, puzzle_list: list[int] = []) -> list[object]:
+    def get_entries_by_player(self, user_id: str, puzzle_name: PuzzleName, puzzle_list: list[int] = []) -> list[object]:
         pass

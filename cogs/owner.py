@@ -1,49 +1,73 @@
+import discord
 from discord.ext import commands
-from games.base_command_handler import BaseCommandHandler
+from discord import app_commands
+
+from games.connections import ConnectionsCommandHandler
+from games.strands import StrandsCommandHandler
+from games.wordle import WordleCommandHandler
 from utils.bot_utilities import BotUtilities, NYTGame
 
-class OwnerCog(commands.Cog, name="Owner-Only Commands"):
+class OwnerCog(commands.Cog, name="owner-cog"):
     # class variables
     bot: commands.Bot
     utils: BotUtilities
 
     # games
-    connections: BaseCommandHandler
-    strands: BaseCommandHandler
-    wordle: BaseCommandHandler
+    connections: ConnectionsCommandHandler
+    strands: StrandsCommandHandler
+    wordle: WordleCommandHandler
 
     def __init__(self, bot: commands.Bot):
-        self.bot = bot
-        self.utils = self.bot.utils
-        self.connections = self.bot.connections
-        self.strands = self.bot.strands
-        self.wordle = self.bot.wordle
+      self.bot = bot
+      self.utils = self.bot.utils
+      self.connections = self.bot.connections
+      self.strands = self.bot.strands
+      self.wordle = self.bot.wordle
 
     #####################
     #   COMMAND SETUP   #
     #####################
+    # def is_owner():
+    #   async def predicate(interaction: discord.Interaction) -> bool:
+    #       return await interaction.client.is_owner(interaction.user)
+    #   return app_commands.check(predicate)
 
     @commands.is_owner()
-    @commands.command(name="remove", help="Removes one puzzle entry for a player")
-    async def remove_entry(self, ctx: commands.Context, *args: str) -> None:
-        match self.utils.get_game_from_channel(ctx.message):
-            case NYTGame.CONNECTIONS:
-                await self.connections.remove_entry(ctx, *args)
-            case NYTGame.STRANDS:
-                await self.strands.remove_entry(ctx, *args)
-            case NYTGame.WORDLE:
-                await self.wordle.remove_entry(ctx, *args)
+    @commands.hybrid_command(
+      name="remove",
+      description="Removes one puzzle entry for a player"
+    )
+    @app_commands.describe(
+      puzzle_type="The puzzle type to remove entry.",
+      command="The command to remove entry."
+    )
+    async def remove_entry(self, ctx: commands.Context, puzzle_type: str, command: str = None):
+      match self.utils.get_game_type(puzzle_type):
+        case NYTGame.CONNECTIONS:
+          await self.connections.remove_entry(ctx, command)
+        case NYTGame.STRANDS:
+          await self.strands.remove_entry(ctx, command)
+        case NYTGame.WORDLE:
+          await self.wordle.remove_entry(ctx, command)
 
     @commands.is_owner()
-    @commands.command(name='add', help='Manually adds a puzzle entry for a player')
-    async def add_score(self, ctx: commands.Context, *args: str) -> None:
-        match self.utils.get_game_from_channel(ctx.message):
-            case NYTGame.CONNECTIONS:
-                await self.connections.add_score(ctx, *args)
-            case NYTGame.STRANDS:
-                await self.strands.add_score(ctx, *args)
-            case NYTGame.WORDLE:
-                await self.wordle.add_score(ctx, *args)
+    @commands.hybrid_command(
+      name='add',
+      description='Manually adds a puzzle entry for a player'
+    )
+    @app_commands.describe(
+      puzzle_type="The puzzle type to add entry.",
+      command="The command to add entry."
+    )
+    async def add_score(self, ctx: commands.Context, puzzle_type: str, command: str = None):
+      match self.utils.get_game_type(puzzle_type):
+        case NYTGame.CONNECTIONS:
+          await self.connections.add_score(ctx, command)
+        case NYTGame.STRANDS:
+          await self.strands.add_score(ctx, command)
+        case NYTGame.WORDLE:
+          await self.wordle.add_score(ctx, command)
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(OwnerCog(bot))
+  await bot.add_cog(OwnerCog(bot))
+  bot.logger.debug(f"Loaded {OwnerCog.__name__} cog.")
