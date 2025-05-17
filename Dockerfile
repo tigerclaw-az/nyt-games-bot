@@ -1,8 +1,13 @@
-FROM python:3.12.9-slim-bookworm
+FROM python:3.11.12-slim-bookworm
 
 WORKDIR /bot
 COPY . /bot
 
-RUN python -m pip install -r requirements.txt
+# Install Python dependencies
+RUN python -m pip install -r requirements.txt && \
+	apt-get update && apt-get clean
+
+# Ensure the .env file is included in the container
+COPY .env /bot/.env
 
 ENTRYPOINT [ "python", "bot.py" ]
