@@ -1,10 +1,10 @@
 import discord, traceback
 from discord import app_commands
 from discord.ext import commands
-from games.base_command_handler import BaseCommandHandler
-from games.connections import ConnectionsCommandHandler
-from games.strands import StrandsCommandHandler
-from games.wordle import WordleCommandHandler
+from handlers.commands import BaseCommandHandler
+from handlers.commands.connections import ConnectionsCommandHandler
+from handlers.commands.strands import StrandsCommandHandler
+from handlers.commands.wordle import WordleCommandHandler
 from utils.bot_utilities import BotUtilities, NYTGame
 from utils.help_handler import HelpMenuHandler
 
@@ -33,13 +33,13 @@ class MembersCog(commands.Cog, name="members-cog"):
   #   COMMAND SETUP   #
   #####################
 
-  @commands.hybrid_command(name="help")
-  async def help_command(self, interaction: discord.Interaction, command: str = None):
+  @commands.hybrid_command(name="help", description="Show help for the bot.")
+  async def help_command(self, ctx: commands.Context, command: str = None):
     # """Slash command for help."""
     if command is None:
-      await interaction.response.send_message(self.help_menu.get_all())
+      await ctx.send(self.help_menu.get_all())
     else:
-      await interaction.response.send_message(self.help_menu.get_message(command))
+      await ctx.send(self.help_menu.get_message(command))
 
   @commands.hybrid_command(
     name='ranks',
@@ -163,5 +163,9 @@ class MembersCog(commands.Cog, name="members-cog"):
         owner_only=True)
 
 async def setup(bot: commands.Bot):
-  await bot.add_cog(MembersCog(bot))
-  bot.logger.debug(f"Loaded {MembersCog.__name__} cog.")
+  try:
+    await bot.add_cog(MembersCog(bot))
+    bot.logger.debug(f"Loaded {MembersCog.__name__} cog.")
+  except Exception as e:
+    bot.logger.error(f"Failed to load {MembersCog.__name__} cog: {e}")
+    traceback.print_exception(e)

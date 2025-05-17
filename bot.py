@@ -1,10 +1,10 @@
-import os, discord, logging, random
+import aiosqlite, asyncio, os, discord, logging, platform, random, traceback
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
-from games.connections import ConnectionsCommandHandler
-from games.strands import StrandsCommandHandler
-from games.wordle import WordleCommandHandler
+from handlers.commands.connections import ConnectionsCommandHandler
+from handlers.commands.strands import StrandsCommandHandler
+from handlers.commands.wordle import WordleCommandHandler
 from utils.bot_utilities import BotUtilities
 from utils.help_handler import HelpMenuHandler
 
@@ -36,22 +36,22 @@ class LoggingFormatter(logging.Formatter):
   bold = "\x1b[1m"
 
   COLORS = {
-      logging.DEBUG: gray + bold,
-      logging.INFO: blue + bold,
-      logging.WARNING: yellow + bold,
-      logging.ERROR: red,
-      logging.CRITICAL: red + bold,
+    logging.DEBUG: gray + bold,
+    logging.INFO: blue + bold,
+    logging.WARNING: yellow + bold,
+    logging.ERROR: red,
+    logging.CRITICAL: red + bold,
   }
 
   def format(self, record):
-      log_color = self.COLORS[record.levelno]
-      format = "(black){asctime}(reset) (levelcolor){levelname:<8}(reset) (green){name}(reset) {message}"
-      format = format.replace("(black)", self.black + self.bold)
-      format = format.replace("(reset)", self.reset)
-      format = format.replace("(levelcolor)", log_color)
-      format = format.replace("(green)", self.green + self.bold)
-      formatter = logging.Formatter(format, "%Y-%m-%d %H:%M:%S", style="{")
-      return formatter.format(record)
+    log_color = self.COLORS[record.levelno]
+    format = "(black){asctime}(reset) (levelcolor){levelname:<8}(reset) (green){name}(reset) {message}"
+    format = format.replace("(black)", self.black + self.bold)
+    format = format.replace("(reset)", self.reset)
+    format = format.replace("(levelcolor)", log_color)
+    format = format.replace("(green)", self.green + self.bold)
+    formatter = logging.Formatter(format, "%Y-%m-%d %H:%M:%S", style="{")
+    return formatter.format(record)
 
 # setup logging
 logger = logging.getLogger("DiscordBot")
@@ -96,10 +96,32 @@ class DiscordBot(commands.Bot):
       self.utils = BotUtilities(discord.Client(intents=intents), self)
       self.help_menu = HelpMenuHandler()
 
-      # create games
-      self.connections = ConnectionsCommandHandler(self.utils)
-      self.strands = StrandsCommandHandler(self.utils)
-      self.wordle = WordleCommandHandler(self.utils)
+    async def init_db(self) -> None:
+      try:
+        # self.connections.connect()
+        # self.strands.connect()
+        # self.wordle.connect()
+        async with aiosqlite.connect(
+          f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db"
+        ) as db:
+          with open(
+            f"{os.path.realpath(os.path.dirname(__file__))}/database/schema.sql",
+            encoding = "utf-8"
+          ) as file:
+            await db.executescript(file.read())
+          await db.commit()
+          connection=await aiosqlite.connect(
+            f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db"
+          )
+
+        self.logger.info("Database loaded & successfully logged in.")
+
+        # create games
+        self.connections = ConnectionsCommandHandler(self.utils, connection)
+        self.strands = StrandsCommandHandler(self.utils, connection)
+        self.wordle = WordleCommandHandler(self.utils, connection)
+      except Exception as e:
+        raise RuntimeError(f"Failed to load database: {e}")
 
     @tasks.loop(minutes=1.0)
     async def status_task(self) -> None:
@@ -120,6 +142,13 @@ class DiscordBot(commands.Bot):
       """
       This will just be executed when the bot starts the first time.
       """
+      self.logger.info(f"discord.py API version: {discord.__version__}")
+      self.logger.info(f"Python version: {platform.python_version()}")
+      self.logger.info(
+        f"Running on: {platform.system()} {platform.release()} ({os.name})"
+      )
+      self.logger.info("-------------------")
+      await self.init_db()
       for extension in ['cogs.members', 'cogs.owner']:
         try:
           await self.load_extension(extension)
@@ -129,28 +158,28 @@ class DiscordBot(commands.Bot):
         except Exception as e:
           raise RuntimeError(f"Failed to load extension '{extension}'.\n{e}")
 
-      try:
-        self.connections.connect()
-        self.strands.connect()
-        self.wordle.connect()
-        self.logger.info("Database loaded & successfully logged in.")
-      except Exception as e:
-        self.logger.error(f"Failed to load database: {e}")
-
       self.status_task.start()
-
-      self.logger.debug(f'{self.user} has connected to Discord!')
-      try:  # Ensure guild_id is valid
+      # self.user is not guaranteed to be available here
+      # self.logger.debug(f'{self.user} has connected to Discord!')
+      # Setup slash commands
+      try:
         self.tree.copy_global_to(guild=discord.Object(id=self.guild_id))
         await self.tree.sync(guild=discord.Object(id=self.guild_id))
         self.logger.debug(f"Slash commands synced for guild ID {self.guild_id}.")
       except Exception as e:
         self.logger.error(f"Failed to sync slash commands for guild ID {self.guild_id}.\n{e}")
 
+    async def on_ready(self):
+      if self.user is not None:
+        self.logger.info(f"Logged in as {self.user.name}")
+        self.logger.debug(f'{self.user} has connected to Discord!')
+      else:
+        self.logger.warning("self.user is None in on_ready()")
+
     async def on_message(self, message: discord.Message) -> None:
-      self.logger.debug(f"Message from {message.author}: {message.content}")
+      self.logger.debug(f"on_message() :: from {message.author}: {message.content}")
       try:
-        if message.author.id != self.bot.user.id and message.content.count("\n") >= 2:
+        if self.user is not None and message.author.id != self.user.id and message.content.count("\n") >= 2:
           # parse non-puzzle lines from message
           user_id = str(message.author.id)
           first_line = message.content.splitlines()[0].strip()
@@ -176,7 +205,7 @@ class DiscordBot(commands.Bot):
               await message.add_reaction('❌')
       except Exception as e:
         self.logger.error(f"Caught exception: {e}")
-        # traceback.print_exception(e)
+        traceback.print_exception(e)
 
     async def on_command_error(self, context: commands.Context, error) -> None:
         """
@@ -239,4 +268,4 @@ def main():
   # run the bot
   bot.run(TOKEN)
 
-main()
+asyncio.run(main())

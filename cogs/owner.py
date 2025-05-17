@@ -1,10 +1,10 @@
-import discord
+import traceback
 from discord.ext import commands
 from discord import app_commands
 
-from games.connections import ConnectionsCommandHandler
-from games.strands import StrandsCommandHandler
-from games.wordle import WordleCommandHandler
+from handlers.commands.connections import ConnectionsCommandHandler
+from handlers.commands.strands import StrandsCommandHandler
+from handlers.commands.wordle import WordleCommandHandler
 from utils.bot_utilities import BotUtilities, NYTGame
 
 class OwnerCog(commands.Cog, name="owner-cog"):
@@ -69,5 +69,9 @@ class OwnerCog(commands.Cog, name="owner-cog"):
           await self.wordle.add_score(ctx, command)
 
 async def setup(bot: commands.Bot):
-  await bot.add_cog(OwnerCog(bot))
-  bot.logger.debug(f"Loaded {OwnerCog.__name__} cog.")
+  try:
+    await bot.add_cog(OwnerCog(bot))
+    bot.logger.debug(f"Loaded {OwnerCog.__name__} cog.")
+  except Exception as e:
+    bot.logger.error(f"Failed to load {OwnerCog.__name__} cog: {e}")
+    traceback.print_exception(e)
