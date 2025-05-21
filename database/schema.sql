@@ -18,7 +18,6 @@ CREATE TABLE IF NOT EXISTS `strands` (
   `puzzle_id` INT,
   `user_id` VARCHAR(50),
   `puzzle_str` TEXT NOT NULL,
-  `score` INT NOT NULL,
   `hints` INT NOT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`puzzle_id`, `user_id`),
