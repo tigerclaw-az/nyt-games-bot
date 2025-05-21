@@ -1,4 +1,6 @@
 import statistics as stats
+import typing
+
 from handlers.database import BaseDatabaseHandler
 from models import BasePlayerStats, BasePuzzleEntry, PuzzleName
 
@@ -7,12 +9,19 @@ class ConnectionsPlayerStats(BasePlayerStats):
   raw_mean: float
   adj_mean: float
 
-  def __init__(self, user_id: str, puzzle_list: list[int], db: BaseDatabaseHandler) -> None:
-    self.user_id = user_id
-    self.puzzle_name = PuzzleName.CONNECTIONS
+  def __init__(self) -> None:
+    super().__init__()
 
-    player_puzzles = db.get_puzzles_by_player(self.user_id)
-    player_entries: list[ConnectionsPuzzleEntry] = db.get_entries_by_player(self.user_id, puzzle_list)
+    # connections-specific stats
+    self.puzzle_name: typing.LiteralString = PuzzleName.CONNECTIONS.value.lower()
+    self.raw_mean: float = 0.0
+    self.adj_mean: float = 0.0
+
+  async def initialize(self, user_id: str, puzzle_list: list[int], db: BaseDatabaseHandler) -> typing.Self:
+    self.user_id = user_id
+
+    player_puzzles: list[int] = await db.get_puzzles_by_player(self.user_id)
+    player_entries: list[ConnectionsPuzzleEntry] = await db.get_entries_by_player(self.user_id, puzzle_list)
 
     self.missed_games = len([p for p in puzzle_list if p not in player_puzzles])
 
@@ -22,7 +31,8 @@ class ConnectionsPlayerStats(BasePlayerStats):
     else:
       self.raw_mean = 0
       self.adj_mean = 0
-    self.rank = -1
+
+    return self
 
   def get_stat_list(self) -> tuple[float, float]:
     return self.raw_mean, self.adj_mean

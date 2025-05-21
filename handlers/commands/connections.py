@@ -1,178 +1,185 @@
-import aiosqlite, discord, io, re
+import aiosqlite, discord, io, re, typing
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import pandas as pd
 import seaborn as sns
-from datetime import timedelta
+from datetime import date, timedelta
 from discord.ext import commands
 
 from handlers.database.connections import ConnectionsDatabaseHandler
 from handlers.commands import BaseCommandHandler
 from models import PuzzleQueryType
 from models.connections import ConnectionsPlayerStats, ConnectionsPuzzleEntry
-from utils.bot_utilities import BotUtilities
+
+if typing.TYPE_CHECKING:
+  from utils.bot_utilities import BotUtilities
 
 class ConnectionsCommandHandler(BaseCommandHandler):
-  def __init__(self, utils: BotUtilities, connection: aiosqlite.Connection) -> None:
+  def __init__(self, utils: "BotUtilities", connection: aiosqlite.Connection) -> None:
     super().__init__(utils, ConnectionsDatabaseHandler(utils, connection))
+    self.player_stats: ConnectionsPlayerStats = ConnectionsPlayerStats()
 
   ######################
   #   MEMBER METHODS   #
   ######################
 
   async def get_ranks(self, ctx: commands.Context, *args: str) -> None:
+      explanation_str: str = ""
+      query_type: PuzzleQueryType = PuzzleQueryType.SINGLE_PUZZLE
+      valid_puzzles: list[int] = []
+
       if len(args) == 0 or (len(args) == 1 and args[0] in ['alltime', 'all-time']):
-          # ALL TIME
-          valid_puzzles = self.db.get_all_puzzles()
-          explanation_str = "All-time"
-          query_type = PuzzleQueryType.ALL_TIME
+        # ALL TIME
+        valid_puzzles = await self.db.get_all_puzzles()
+        explanation_str = "All-time"
+        query_type = PuzzleQueryType.ALL_TIME
       elif len(args) == 1 and args[0] in ['week', 'weekly']:
-          # WEEKLY
-          start_of_week = self.utils.get_week_start(self.utils.get_todays_date())
-          todays_puzzle_id = self.db.get_puzzle_by_date(self.utils.get_todays_date())
-          valid_puzzles = [p_id for p_id in self.db.get_puzzles_by_week(start_of_week) if p_id <= todays_puzzle_id]
-          explanation_str = "This Week (so far)"
-          query_type = PuzzleQueryType.MULTI_PUZZLE
+        # WEEKLY
+        start_of_week: date = self.utils.get_week_start(self.utils.get_todays_date())
+        todays_puzzle_id: int = self.db.get_puzzle_by_date(self.utils.get_todays_date())
+        valid_puzzles = [p_id for p_id in self.db.get_puzzles_by_week(start_of_week) if p_id <= todays_puzzle_id]
+        explanation_str = "This Week (so far)"
+        query_type = PuzzleQueryType.MULTI_PUZZLE
       elif len(args) == 1 and args[0] in ['10day', '10-day']:
-          # 10-DAY AVERAGE
-          seven_days_ago_puzzle = self.db.get_puzzle_by_date(self.utils.get_todays_date() - timedelta(days=10))
-          valid_puzzles = list(range(seven_days_ago_puzzle, seven_days_ago_puzzle + 10))
-          explanation_str = "Last 10 Days"
-          query_type = PuzzleQueryType.MULTI_PUZZLE
+        # 10-DAY AVERAGE
+        seven_days_ago_puzzle: int = self.db.get_puzzle_by_date(self.utils.get_todays_date() - timedelta(days=10))
+        valid_puzzles = list(range(seven_days_ago_puzzle, seven_days_ago_puzzle + 10))
+        explanation_str = "Last 10 Days"
+        query_type = PuzzleQueryType.MULTI_PUZZLE
       elif len(args) == 1 and args[0] == 'today':
-          # TODAY ONLY
-          valid_puzzles = [self.db.get_puzzle_by_date(self.utils.get_todays_date())]
-          explanation_str = f"Puzzle #{valid_puzzles[0]}"
-          query_type = PuzzleQueryType.SINGLE_PUZZLE
+        # TODAY ONLY
+        valid_puzzles = [self.db.get_puzzle_by_date(self.utils.get_todays_date())]
+        explanation_str = f"Puzzle #{valid_puzzles[0]}"
       elif len(args) == 1 and re.match(r'^[#]?\d+$', args[0]):
-          # SPECIFIC PUZZLE ONLY
-          valid_puzzles = [int(args[0].strip("# "))]
-          explanation_str = f"Puzzle #{valid_puzzles[0]}"
-          query_type = PuzzleQueryType.SINGLE_PUZZLE
+        # SPECIFIC PUZZLE ONLY
+        valid_puzzles = [int(args[0].strip("# "))]
+        explanation_str = f"Puzzle #{valid_puzzles[0]}"
       elif len(args) == 1 and self.utils.is_date(args[0]):
-          # WEEKLY (BY SPECIFIC DATE)
-          query_date = self.utils.get_date_from_str(args[0])
-          todays_puzzle_id = self.db.get_puzzle_by_date(self.utils.get_todays_date())
-          if self.utils.is_sunday(query_date):
-              valid_puzzles = [p_id for p_id in self.db.get_puzzles_by_week(query_date) if p_id <= todays_puzzle_id]
-              explanation_str = f"Week of {self.utils.convert_date_to_str(query_date)}"
-              query_type = PuzzleQueryType.MULTI_PUZZLE
-          else:
-              await ctx.reply("Query date is not a Sunday. Try `/help ranks`.")
-              return
-      else:
-          await ctx.reply("Couldn't understand your command. Try `/help ranks`.")
+        # WEEKLY (BY SPECIFIC DATE)
+        query_date: date = self.utils.get_date_from_str(args[0])
+        todays_puzzle_id = self.db.get_puzzle_by_date(self.utils.get_todays_date())
+        if self.utils.is_sunday(query_date):
+          valid_puzzles = [p_id for p_id in self.db.get_puzzles_by_week(query_date) if p_id <= todays_puzzle_id]
+          explanation_str = f"Week of {self.utils.convert_date_to_str(query_date)}"
+          query_type = PuzzleQueryType.MULTI_PUZZLE
+        else:
+          await ctx.reply("Query date is not a Sunday. Try `/help ranks`.")
           return
+      else:
+        await ctx.reply("Couldn't understand your command. Try `/help ranks`.")
+        return
 
       stats: list[ConnectionsPlayerStats] = []
-      for user_id in self.db.get_all_players():
-          player_puzzles = self.db.get_puzzles_by_player(user_id)
-          intersection = list(set(player_puzzles).intersection(valid_puzzles))
-          if len(intersection) > 0:
-              stats.append(ConnectionsPlayerStats(user_id, valid_puzzles, self.db))
-
-      if len(stats) == 0:
+      for user_id in await self.db.get_all_players():
+        player_puzzles: list[int] = await self.db.get_puzzles_by_player(user_id)
+        intersection = list(set(player_puzzles).intersection(valid_puzzles))
+        if len(intersection) > 0:
+          stats.append(await self.player_stats.initialize(user_id, valid_puzzles, self.db))
+        else:
           await ctx.reply(f"Sorry, no users could be found for this query.")
           return
 
       if query_type != PuzzleQueryType.ALL_TIME:
-          # for all queries except 'All-time', we rank based on the adjusted mean
-          stats.sort(key = lambda p: (p.adj_mean))
+        # for all queries except 'All-time', we rank based on the adjusted mean
+        stats.sort(key = lambda p: (p.adj_mean))
       else:
-          # for all-time queries, we must rank on the raw score (since adj. will be skewed)
-          stats.sort(key = lambda p: (p.raw_mean))
+        # for all-time queries, we must rank on the raw score (since adj. will be skewed)
+        stats.sort(key = lambda p: (p.raw_mean))
 
       if query_type == PuzzleQueryType.SINGLE_PUZZLE:
-          # stats for just 1 puzzle
-          df = pd.DataFrame(columns=['Rank', 'User', 'Score'])
-          for i, player_stats in enumerate(stats):
-              if i > 0 and player_stats.get_stat_list() == stats[i - 1].get_stat_list():
-                  player_stats.rank = stats[i - 1].rank
-              else:
-                  player_stats.rank = i + 1
+        # stats for just 1 puzzle
+        df = pd.DataFrame(columns=['Rank', 'User', 'Score'])
+        for i, player_stats in enumerate(stats):
+          if i > 0 and player_stats.get_stat_list() == stats[i - 1].get_stat_list():
+            player_stats.rank = stats[i - 1].rank
+          else:
+            player_stats.rank = i + 1
 
-              if i <= self.MAX_DATAFRAME_ROWS:
-                  df.loc[i] = [
-                      player_stats.rank,
-                      self.utils.get_nickname(player_stats.user_id),
-                      f"{player_stats.raw_mean:d}/7"
-                  ]
+          if i <= self.MAX_DATAFRAME_ROWS:
+            df.loc[i] = [
+              player_stats.rank,
+              self.utils.get_nickname(player_stats.user_id),
+              f"{player_stats.raw_mean:d}/7"
+            ]
       elif query_type == PuzzleQueryType.MULTI_PUZZLE:
-          # stats for 2+ puzzles, but not all-time
-          df = pd.DataFrame(columns=['Rank', 'User', 'Average', '🧩', '🚫'])
-          for i, player_stats in enumerate(stats):
-              if i > 0 and player_stats.get_stat_list() == stats[i - 1].get_stat_list():
-                  player_stats.rank = stats[i - 1].rank
-              else:
-                  player_stats.rank = i + 1
-              if i <= self.MAX_DATAFRAME_ROWS:
-                  df.loc[i] = [
-                      player_stats.rank,
-                      self.utils.get_nickname(player_stats.user_id),
-                      f"{player_stats.adj_mean:.2f}/7 ({player_stats.raw_mean:.2f}/7)",
-                      len(valid_puzzles) - player_stats.missed_games,
-                      player_stats.missed_games
-                  ]
+        # stats for 2+ puzzles, but not all-time
+        df = pd.DataFrame(columns=['Rank', 'User', 'Average', '🧩', '🚫'])
+        for i, player_stats in enumerate(stats):
+          if i > 0 and player_stats.get_stat_list() == stats[i - 1].get_stat_list():
+            player_stats.rank = stats[i - 1].rank
+          else:
+            player_stats.rank = i + 1
+          if i <= self.MAX_DATAFRAME_ROWS:
+            df.loc[i] = [
+              player_stats.rank,
+              self.utils.get_nickname(player_stats.user_id),
+              f"{player_stats.adj_mean:.2f}/7 ({player_stats.raw_mean:.2f}/7)",
+              len(valid_puzzles) - player_stats.missed_games,
+              player_stats.missed_games
+            ]
       elif query_type == PuzzleQueryType.ALL_TIME:
-          # stats for 2+ puzzles, for all-time
-          df = pd.DataFrame(columns=['Rank', 'User', 'Average', '🧩'])
-          for i, player_stats in enumerate(stats):
-              if i > 0 and player_stats.get_stat_list() == stats[i - 1].get_stat_list():
-                  player_stats.rank = stats[i - 1].rank
-              else:
-                  player_stats.rank = i + 1
-              if i <= self.MAX_DATAFRAME_ROWS:
-                  df.loc[i] = [
-                      player_stats.rank,
-                      self.utils.get_nickname(player_stats.user_id),
-                      f"{player_stats.raw_mean:.2f}/7",
-                      len(valid_puzzles) - player_stats.missed_games
-                  ]
+        # stats for 2+ puzzles, for all-time
+        df = pd.DataFrame(columns=['Rank', 'User', 'Average', '🧩'])
+        for i, player_stats in enumerate(stats):
+          if i > 0 and player_stats.get_stat_list() == stats[i - 1].get_stat_list():
+            player_stats.rank = stats[i - 1].rank
+          else:
+            player_stats.rank = i + 1
+          if i <= self.MAX_DATAFRAME_ROWS:
+            df.loc[i] = [
+              player_stats.rank,
+              self.utils.get_nickname(player_stats.user_id),
+              f"{player_stats.raw_mean:.2f}/7",
+              len(valid_puzzles) - player_stats.missed_games
+            ]
 
       ranks_img = self.utils.get_image_from_df(df)
 
       if ranks_img is not None:
-          with io.BytesIO() as image_binary:
-              ranks_img.save(image_binary, 'PNG')
-              image_binary.seek(0)
-              await ctx.send(f"Leaderboard 🧩: {explanation_str}", \
-                      file=discord.File(fp=image_binary, filename='image.png'))
+        with io.BytesIO() as image_binary:
+          ranks_img.save(image_binary, 'PNG')
+          image_binary.seek(0)
+          await ctx.send(
+            f"Leaderboard 🧩: {explanation_str}",
+            file=discord.File(fp=image_binary, filename='image.png')
+          )
       else:
-          await ctx.reply("Sorry, there was an issue fetching ranks. Please try again later.")
+        await ctx.reply("Sorry, there was an issue fetching ranks. Please try again later.")
 
   async def get_missing(self, ctx: commands.Context, *args: str) -> None:
-      if len(args) == 0:
-          puzzle_id = self.db.get_puzzle_by_date(self.utils.get_todays_date())
-      elif len(args) == 1 and re.match(r"^[#]?\d+$", args[0]):
-          puzzle_id = int(args[0].strip("# "))
-      else:
-          await ctx.reply("Couldn't understand command. Try `?help missing`")
-          return
+    if len(args) == 0:
+      puzzle_id = self.db.get_puzzle_by_date(self.utils.get_todays_date())
+    elif len(args) == 1 and re.match(r"^[#]?\d+$", args[0]):
+      puzzle_id = int(args[0].strip("# "))
+    else:
+      await ctx.reply("Couldn't understand command. Try `?help missing`")
+      return
 
-      missing_ids = [user_id for user_id in self.db.get_all_players() if user_id not in self.db.get_players_by_puzzle_id(puzzle_id)]
-      if len(missing_ids) == 0:
-          await ctx.reply(f"All tracked players have submitted Puzzle #{puzzle_id}!")
-      else:
-          await ctx.reply("The following players are missing Puzzle #{}: <@{}>".format(puzzle_id, '>, <@'.join(missing_ids)))
+    missing_ids: list[str] = [user_id for user_id in await self.db.get_all_players() if user_id not in await self.db.get_players_by_puzzle_id(puzzle_id)]
+    if len(missing_ids) == 0:
+      await ctx.reply(f"All tracked players have submitted Puzzle #{puzzle_id}!")
+    else:
+      await ctx.reply("The following players are missing Puzzle #{}: <@{}>".format(puzzle_id, '>, <@'.join(missing_ids)))
 
   async def get_entries(self, ctx: commands.Context, *args: str) -> None:
-      if len(args) == 0:
-          user_id = str(ctx.author.id)
-      elif len(args) == 1 and self.utils.is_user(args[0]):
-          user_id = args[0].strip("<@!> ")
-      else:
-          await ctx.reply("Couldn't understand command. Try `/help entries`.")
-          return
+    if len(args) == 0:
+      user_id = str(ctx.author.id)
+    elif len(args) == 1 and self.utils.is_user(args[0]):
+      user_id = args[0].strip("<@!> ")
+    else:
+      await ctx.reply("Couldn't understand command. Try `/help entries`.")
+      return
 
-      if user_id in self.db.get_all_players():
-          found_puzzles = [str(p_id) for p_id in self.db.get_puzzles_by_player(user_id)]
-          if len(found_puzzles) == 0:
-              await ctx.reply(f"Couldn't find any recorded entries for <@{user_id}>.")
-          elif len(found_puzzles) < 50:
-              await ctx.reply(f"{len(found_puzzles)} entries found:\n#{', #'.join(found_puzzles)}\nUse `?view <puzzle #>` to see details of a submission.")
-          else:
-              await ctx.reply(f"{len(found_puzzles)} entries found, too many to display. First 10 and last 10:\n#{', #'.join(found_puzzles[:10])} ... #{', #'.join(found_puzzles[-10:])}\nUse `?view <puzzle #>` to see details of a submission.")
+    if user_id in await self.db.get_all_players():
+      found_puzzles: list[str] = [str(p_id) for p_id in await self.db.get_puzzles_by_player(user_id)]
+      if len(found_puzzles) == 0:
+        await ctx.reply(f"Couldn't find any recorded entries for <@{user_id}>.")
+      elif len(found_puzzles) < 50:
+        await ctx.reply(f"{len(found_puzzles)} entries found:\n#{', #'.join(found_puzzles)}\nUse `?view <puzzle #>` to see details of a submission.")
       else:
-          await ctx.reply(f"Couldn't find any recorded entries for <@{user_id}>.")
+        await ctx.reply(f"{len(found_puzzles)} entries found, too many to display. First 10 and last 10:\n#{', #'.join(found_puzzles[:10])} ... #{', #'.join(found_puzzles[-10:])}\nUse `?view <puzzle #>` to see details of a submission.")
+    else:
+      await ctx.reply(f"Couldn't find any recorded entries for <@{user_id}>.")
 
   async def get_entry(self, ctx: commands.Context, *args: str) -> None:
       if len(args) >= 1:
@@ -195,8 +202,8 @@ class ConnectionsCommandHandler(BaseCommandHandler):
 
       puzzle_ids.sort()
 
-      if user_id in self.db.get_all_players():
-          user_puzzles: list[ConnectionsPuzzleEntry] = self.db.get_entries_by_player(user_id)
+      if user_id in await self.db.get_all_players():
+          user_puzzles: list[ConnectionsPuzzleEntry] = await self.db.get_entries_by_player(user_id)
           df = pd.DataFrame(columns=['User', 'Puzzle', 'Score'])
           for i, puzzle_id in enumerate(puzzle_ids):
               found_match = False
@@ -237,7 +244,7 @@ class ConnectionsCommandHandler(BaseCommandHandler):
           for arg in args:
               if self.utils.is_user(arg):
                   user_id = arg.strip("<@!> ")
-                  if user_id in self.db.get_all_players():
+                  if user_id in await self.db.get_all_players():
                       user_ids.append(user_id)
                   else:
                       unknown_ids.append(str(user_id))
@@ -253,14 +260,14 @@ class ConnectionsCommandHandler(BaseCommandHandler):
 
       df = pd.DataFrame(columns=['User', 'Avg Score', '🧩', '🚫'])
       for i, user_id in enumerate(user_ids):
-          puzzle_list = self.db.get_puzzles_by_player(user_id)
-          player_stats = ConnectionsPlayerStats(user_id, puzzle_list, self.db)
-          df.loc[i] = [
-              self.utils.get_nickname(user_id),
-              f"{player_stats.raw_mean:.4f}",
-              len(puzzle_list),
-              len(self.db.get_all_puzzles()) - len(puzzle_list),
-          ]
+        puzzle_list: list[int] = await self.db.get_puzzles_by_player(user_id)
+        player_stats: ConnectionsPlayerStats = await self.player_stats.initialize(user_id, puzzle_list, self.db)
+        df.loc[i] = [
+            self.utils.get_nickname(user_id),
+            f"{player_stats.raw_mean:.4f}",
+            len(puzzle_list),
+            len(await self.db.get_all_puzzles()) - len(puzzle_list),
+        ]
 
       stats_img = self.utils.get_image_from_df(df)
 
@@ -272,7 +279,7 @@ class ConnectionsCommandHandler(BaseCommandHandler):
           df = pd.DataFrame(columns=['Player', 'Score', 'Count'])
           for i, user_id in enumerate(user_ids):
               score_counts = [0] * len(valid_scores)
-              entries: list[ConnectionsPuzzleEntry] = self.db.get_entries_by_player(user_id)
+              entries: list[ConnectionsPuzzleEntry] = await self.db.get_entries_by_player(user_id)
               for score in [entry.score for entry in entries]:
                   score_counts[score - 4] += 1
               for j in range(0, len(valid_scores)):
@@ -286,7 +293,7 @@ class ConnectionsCommandHandler(BaseCommandHandler):
               for c in ax.containers:
                   labels = ['%d' % v.get_height() for v in c]
                   ax.bar_label(c, labels=labels, label_type='edge', fontsize=15)
-          fig = plt.gcf()
+          fig: Figure = plt.gcf()
           fig.subplots_adjust(bottom=0.2)
           fig.set_size_inches(10, 5)
           hist_img = self.utils.fig_to_image(fig)
@@ -323,7 +330,7 @@ class ConnectionsCommandHandler(BaseCommandHandler):
       await ctx.reply("Could not understand command. Try `?remove <user> <puzzle #>`.")
       return
 
-    if user_id in self.db.get_all_players() and puzzle_id in self.db.get_all_puzzles():
+    if user_id in await self.db.get_all_players() and puzzle_id in await self.db.get_all_puzzles():
       if self.db.remove_entry(user_id, puzzle_id):
         await ctx.message.add_reaction('✅')
       else:

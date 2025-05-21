@@ -1,13 +1,29 @@
-import discord, io, re
-import matplotlib.pyplot as plt
+import discord, io, re, typing
+from logging import Logger
 from bokeh.io.export import get_screenshot_as_png
+from bokeh.layouts import column
 from bokeh.models import ColumnDataSource, DataTable, TableColumn
 from enum import Enum, auto
 from datetime import date, datetime, timedelta, timezone
-from discord.ext import commands
 from PIL import Image
+from matplotlib.figure import Figure
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
+
+from utils.bot_typing import MyBotType
+
+DiscordReactions: dict[str, str] = {
+  "thumbsup": "👍",
+  "thumbsdown": "👎",
+  "clap": "👏",
+  "checkmark": "✅",
+  "crossmark": "❌",
+  "sparkles": "✨",
+  "star": "⭐",
+  "fire": "🔥",
+  "heart": "❤️",
+  "party": "🎉"
+}
 
 class NYTGame(Enum):
   CONNECTIONS = auto()
@@ -16,11 +32,11 @@ class NYTGame(Enum):
   UNKNOWN = auto()
 
 class BotUtilities():
-  def __init__(self, client: discord.Client, bot: commands.Bot) -> None:
-    bot.logger.debug(f"Initializing {bot.__class__.__name__} class.")
+  def __init__(self, client: discord.Client, bot: MyBotType) -> None:
+    bot.logger.debug(f"Initializing {self.__class__.__name__} class.")
 
     self.client: discord.Client = client
-    self.bot: commands.Bot = bot
+    self.bot: MyBotType = bot
 
   # GAME TYPE
   def get_game_type(self, puzzle_type: str) -> NYTGame:
@@ -36,33 +52,35 @@ class BotUtilities():
   # QUERIES
 
   def get_nickname(self, user_id: str) -> str:
-    guild = self.bot.get_guild(self.bot.guild_id)
+    guild: discord.Guild | None = self.bot.get_guild(self.bot.guilds[0].id)
+    if guild is None:
+      self.bot.logger.error(f"Guild not found with ID: {self.bot.guilds[0].id}")
+      return "?"
+
     for member in guild.members:
       if str(member.id) == str(user_id):
         return member.display_name
+
     return "?"
 
   # VALIDATION
 
   def is_user(self, word: str) -> bool:
-    return re.match(r'^<@[!]?\d+>', word)
+    return re.match(r'^<@[!]?\d+>', word) is not None
 
   def is_date(self, date_str: str) -> bool:
-    return re.match(r'^\d{1,2}/\d{1,2}(/\d{2}(?:\d{2})?)?$', date_str)
+    return re.match(r'^\d{1,2}/\d{1,2}(/\d{2}(?:\d{2})?)?$', date_str) is not None
 
   def is_sunday(self, query_date: date) -> bool:
-    if query_date is not None and type(query_date) is date:
-        return query_date.strftime('%A') == 'Sunday'
-    else:
-        return False
+    return query_date.strftime('%A') == 'Sunday'
 
-  def is_wordle_submission(self, line: str) -> str:
+  def is_wordle_submission(self, line: str) -> re.Match | None:
     return re.match(r'^Wordle (\d+|\d{1,3}(,\d{3})*)( 🎉)? (\d|X)\/\d$', line)
 
-  def is_connections_submission(self, lines: str) -> str:
+  def is_connections_submission(self, lines: str) -> re.Match | None:
     return re.match(r'^Connections *(\n)Puzzle #\d+', lines)
 
-  def is_strands_submission(self, lines: str) -> str:
+  def is_strands_submission(self, lines: str) -> re.Match | None:
     return re.match(r'Strands #\d+', lines)
 
   # DATES/TIMES
@@ -70,30 +88,27 @@ class BotUtilities():
   def get_todays_date(self) -> date:
     return datetime.now(timezone(timedelta(hours=-5), 'EST')).date()
 
-  def get_week_start(self, query_date: date):
-    if query_date is not None and type(query_date) is date:
-        return query_date - timedelta(days = (query_date.weekday() + 1) % 7)
-    return None
+  def get_week_start(self, query_date: date) -> date:
+    return query_date - timedelta(days = (query_date.weekday() + 1) % 7)
 
   def get_date_from_str(self, date_str: str) -> date:
-    if not self.is_date(date_str): return None
+    if not self.is_date(date_str):
+      raise ValueError(f"Invalid date format: {date_str}")
 
     if re.match(r'^\d{1,2}/\d{1,2}$', date_str):
-        return datetime.strptime(date_str, f'%m/%d').replace(year=datetime.today().year).date()
+      return datetime.strptime(date_str, f'%m/%d').replace(year=datetime.today().year).date()
     elif re.match(r'^\d{1,2}/\d{1,2}/\d{2}$', date_str):
-        return datetime.strptime(date_str, f'%m/%d/%y').date()
+      return datetime.strptime(date_str, f'%m/%d/%y').date()
     elif re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', date_str):
-        return datetime.strptime(date_str, f'%m/%d/%Y').date()
-    else:
-        return None
+      return datetime.strptime(date_str, f'%m/%d/%Y').date()
+
+    raise ValueError(f"Invalid date format: {date_str}")
 
   # CONVERT
-
   def convert_date_to_str(self, query_date: date) -> str:
     return query_date.strftime(f'%m/%d/%Y')
 
   # DATA FRAME TO IMAGE
-
   def get_image_from_df(self, df) -> Image.Image:
     source = ColumnDataSource(df)
 
@@ -103,6 +118,7 @@ class BotUtilities():
         columns_for_table.append(TableColumn(field=column, title=column))
 
     data_table = DataTable(source=source, columns=columns_for_table, index_position=None, reorderable=False, autosize_mode="fit_columns")
+    layout = column(data_table)
 
     chrome_options = webdriver.ChromeOptions()
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -112,7 +128,7 @@ class BotUtilities():
     service = Service(executable_path='/usr/bin/chromedriver')
     driver = webdriver.Chrome(service=service, options=chrome_options)
 
-    generated: Image.Image = get_screenshot_as_png(data_table, driver=driver)
+    generated: Image.Image = get_screenshot_as_png(layout, driver=driver)
     return self._trim_image(generated)
 
   def _trim_image(self, image: Image.Image) -> Image.Image:
@@ -131,12 +147,12 @@ class BotUtilities():
                     return rgb_image.crop([5, 5, width, y + 8])
 
     return rgb_image
-
-  def fig_to_image(self, fig: plt.Figure) -> Image.Image:
+  def fig_to_image(self, fig: Figure) -> Image.Image:
     buf = io.BytesIO()
     fig.savefig(buf)
     buf.seek(0)
     img = Image.open(buf)
+    return img
     return img
 
   def image_to_binary(self, img: Image.Image) -> io.BytesIO:
@@ -154,21 +170,23 @@ class BotUtilities():
     combo.paste(img2, (0, img1.size[1]))
     return combo
 
-  def resize_image(self, image: Image.Image, width: int = None, height: int = None) -> Image.Image:
+  def resize_image(self, image: Image.Image, width: int|None = None, height: int|None = None) -> Image.Image:
     w, h = image.size
-    if width is None and height is None:
-        return image
+    if width is None or height is None:
+      return image
+
     if width is None:
-        r = height / float(h)
-        dim = (int(w * r), height)
+      r = height / float(h)
+      dim = (int(w * r), height)
     else:
-        r = width / float(w)
-        dim = (width, int(h * r))
+      r = width / float(w)
+      dim = (width, int(h * r))
+
     try:
-        return image.resize(dim)
+      return image.resize(dim)
     except Exception as e:
-        print('Caught exception: ' + str(e))
-        return None
+      self.bot.logger.error('Caught exception: ' + str(e))
+      raise e
 
   def remove_emojis(self, data: str) -> str:
     emoj = re.compile("["

@@ -1,3 +1,4 @@
+import typing
 import statistics as stats
 from handlers.database import BaseDatabaseHandler
 from models import BasePlayerStats, BasePuzzleEntry, PuzzleName
@@ -10,12 +11,22 @@ class WordlePlayerStats(BasePlayerStats):
   raw_mean: float
   adj_mean: float
 
-  def __init__(self, user_id: str, puzzle_list: list[int], db: BaseDatabaseHandler) -> None:
-    self.user_id = user_id
-    self.puzzle_name = PuzzleName.WORDLE
+  def __init__(self) -> None:
+    super().__init__()
 
-    player_puzzles = db.get_puzzles_by_player(self.user_id)
-    player_entries: list[WordlePuzzleEntry] = db.get_entries_by_player(self.user_id, puzzle_list)
+    # wordle-specific stats
+    self.puzzle_name: typing.LiteralString = PuzzleName.WORDLE.value.lower()
+    self.avg_green: float = 0.0
+    self.avg_yellow: float = 0.0
+    self.avg_other: float = 0.0
+    self.adj_mean: float = 0.0
+    self.raw_mean: float = 0.0
+
+  async def initialize(self, user_id: str, puzzle_list: list[int], db: BaseDatabaseHandler) -> typing.Self:
+    self.user_id = user_id
+
+    player_puzzles: list[int] = await db.get_puzzles_by_player(self.user_id)
+    player_entries: list[WordlePuzzleEntry] = await db.get_entries_by_player(self.user_id, puzzle_list)
 
     self.missed_games = len([p for p in puzzle_list if p not in player_puzzles])
 
@@ -31,10 +42,11 @@ class WordlePlayerStats(BasePlayerStats):
       self.avg_green = 0
       self.avg_yellow = 0
       self.avg_other = 0
-    self.rank = -1
 
-  def get_stat_list(self) -> list[float, float, float, float, float]:
-    return [self.raw_mean, self.adj_mean, self.avg_green, self.avg_yellow, self.avg_other]
+    return self
+
+  def get_stat_list(self) -> tuple[float, float, float, float, float]:
+    return (self.raw_mean, self.adj_mean, self.avg_green, self.avg_yellow, self.avg_other)
 
 class WordlePuzzleEntry(BasePuzzleEntry):
   # wordle-specific details

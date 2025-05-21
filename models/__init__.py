@@ -1,4 +1,5 @@
 from enum import Enum, auto
+from turtle import pu
 from typing import Protocol
 
 class PuzzleName(Enum):
@@ -15,9 +16,16 @@ class PuzzleQueryType(Enum):
   ALL_TIME = auto()
 
 class BasePlayerStats(Protocol):
-  user_id: str
   missed_games: int
+  puzzle_name: str
   rank: int
+  user_id: str
+
+  def __init__(self) -> None:
+    self.missed_games = 0
+    self.puzzle_name = ""
+    self.rank = -1
+    self.user_id = ""
 
 class BasePuzzleEntry(Protocol):
   puzzle_id: int

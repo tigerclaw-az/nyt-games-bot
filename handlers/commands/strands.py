@@ -1,28 +1,36 @@
-import aiosqlite, discord, io, re
+import aiosqlite, discord, io, re, typing
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import pandas as pd
 import seaborn as sns
 from datetime import timedelta
 from discord.ext import commands
 
-from handlers.database.strands import StrandsDatabaseHandler
 from handlers.commands import BaseCommandHandler
+from handlers.database.strands import StrandsDatabaseHandler
 from models import PuzzleQueryType
 from models.strands import StrandsPlayerStats, StrandsPuzzleEntry
-from utils.bot_utilities import BotUtilities
+
+if typing.TYPE_CHECKING:
+  from utils.bot_utilities import BotUtilities
 
 class StrandsCommandHandler(BaseCommandHandler):
-  def __init__(self, utils: BotUtilities, connection: aiosqlite.Connection) -> None:
+  def __init__(self, utils: "BotUtilities", connection: aiosqlite.Connection) -> None:
       super().__init__(utils, StrandsDatabaseHandler(utils, connection))
+      self.player_stats = StrandsPlayerStats()
 
   ######################
   #   MEMBER METHODS   #
   ######################
 
   async def get_ranks(self, ctx: commands.Context, *args: str) -> None:
+      explanation_str: str = ""
+      query_type: PuzzleQueryType = PuzzleQueryType.SINGLE_PUZZLE
+      valid_puzzles: list[int] = []
+
       if len(args) == 0 or (len(args) == 1 and args[0] in ['alltime', 'all-time']):
           # ALL TIME
-          valid_puzzles = self.db.get_all_puzzles()
+          valid_puzzles = await self.db.get_all_puzzles()
           explanation_str = "All-time"
           query_type = PuzzleQueryType.ALL_TIME
       elif len(args) == 1 and args[0] in ['week', 'weekly']:
@@ -64,11 +72,11 @@ class StrandsCommandHandler(BaseCommandHandler):
           return
 
       stats: list[StrandsPlayerStats] = []
-      for user_id in self.db.get_all_players():
-          player_puzzles = self.db.get_puzzles_by_player(user_id)
+      for user_id in await self.db.get_all_players():
+          player_puzzles = await self.db.get_puzzles_by_player(user_id)
           intersection = list(set(player_puzzles).intersection(valid_puzzles))
           if len(intersection) > 0:
-              stats.append(StrandsPlayerStats(user_id, valid_puzzles, self.db))
+              stats.append(await self.player_stats.initialize(user_id, valid_puzzles, self.db))
 
       if len(stats) == 0:
           await ctx.reply(f"Sorry, no users could be found for this query.")
@@ -155,7 +163,7 @@ class StrandsCommandHandler(BaseCommandHandler):
           await ctx.reply("Couldn't understand command. Try `?help missing`")
           return
 
-      missing_ids = [user_id for user_id in self.db.get_all_players() if user_id not in self.db.get_players_by_puzzle_id(puzzle_id)]
+      missing_ids = [user_id for user_id in await self.db.get_all_players() if user_id not in await self.db.get_players_by_puzzle_id(puzzle_id)]
       if len(missing_ids) == 0:
           await ctx.reply(f"All tracked players have submitted Puzzle #{puzzle_id}!")
       else:
@@ -170,8 +178,8 @@ class StrandsCommandHandler(BaseCommandHandler):
           await ctx.reply("Couldn't understand command. Try `?help entries`.")
           return
 
-      if user_id in self.db.get_all_players():
-          found_puzzles = [str(p_id) for p_id in self.db.get_puzzles_by_player(user_id)]
+      if user_id in await self.db.get_all_players():
+          found_puzzles = [str(p_id) for p_id in await self.db.get_puzzles_by_player(user_id)]
           if len(found_puzzles) == 0:
               await ctx.reply(f"Couldn't find any recorded entries for <@{user_id}>.")
           elif len(found_puzzles) < 50:
@@ -202,8 +210,8 @@ class StrandsCommandHandler(BaseCommandHandler):
 
       puzzle_ids.sort()
 
-      if user_id in self.db.get_all_players():
-          user_puzzles: list[StrandsPuzzleEntry] = self.db.get_entries_by_player(user_id)
+      if user_id in await self.db.get_all_players():
+          user_puzzles: list[StrandsPuzzleEntry] = await self.db.get_entries_by_player(user_id)
           df = pd.DataFrame(columns=['User', 'Puzzle #', 'Rating', 'Hints', '🟡 Index', 'Puzzle'])
           for i, puzzle_id in enumerate(puzzle_ids):
               found_match = False
@@ -249,7 +257,7 @@ class StrandsCommandHandler(BaseCommandHandler):
           for arg in args:
               if self.utils.is_user(arg):
                   user_id = arg.strip("<@!> ")
-                  if user_id in self.db.get_all_players():
+                  if user_id in await self.db.get_all_players():
                       user_ids.append(user_id)
                   else:
                       unknown_ids.append(str(user_id))
@@ -265,15 +273,15 @@ class StrandsCommandHandler(BaseCommandHandler):
 
       df = pd.DataFrame(columns=['User', 'Avg Rating', 'Avg Hints', 'Avg 🟡 Index', '🧩', '🚫'])
       for i, user_id in enumerate(user_ids):
-          puzzle_list = self.db.get_puzzles_by_player(user_id)
-          player_stats = StrandsPlayerStats(user_id, puzzle_list, self.db)
+          puzzle_list: list[int] = await self.db.get_puzzles_by_player(user_id)
+          player_stats: StrandsPlayerStats = await self.player_stats.initialize(user_id, puzzle_list, self.db)
           df.loc[i] = [
               self.utils.get_nickname(user_id),
               f"{player_stats.avg_rating_raw:.2f}",
               f"{player_stats.avg_hints:.2f}",
               f"{player_stats.avg_spangram_index:.2f}",
               len(puzzle_list),
-              len(self.db.get_all_puzzles()) - len(puzzle_list),
+              len(await self.db.get_all_puzzles()) - len(puzzle_list),
           ]
 
       stats_img = self.utils.get_image_from_df(df)
@@ -286,7 +294,7 @@ class StrandsCommandHandler(BaseCommandHandler):
           df = pd.DataFrame(columns=['Player', 'Hints', 'Count'])
           for i, user_id in enumerate(user_ids):
               hint_counts = [0] * len(valid_hints)
-              entries: list[StrandsPuzzleEntry] = self.db.get_entries_by_player(user_id)
+              entries: list[StrandsPuzzleEntry] = await self.db.get_entries_by_player(user_id)
               for hints in [entry.hints for entry in entries]:
                   hint_counts[hints] += 1
               for j in range(0, len(valid_hints)):
@@ -299,8 +307,7 @@ class StrandsCommandHandler(BaseCommandHandler):
           for ax in g.axes.ravel():
               for c in ax.containers:
                   labels = ['%d' % v.get_height() for v in c]
-                  ax.bar_label(c, labels=labels, label_type='edge', fontsize=15)
-          fig = plt.gcf()
+          fig: Figure = plt.gcf()
           fig.subplots_adjust(bottom=0.2)
           fig.set_size_inches(15, 5)
           hist_img = self.utils.fig_to_image(fig)
@@ -337,8 +344,8 @@ class StrandsCommandHandler(BaseCommandHandler):
       await ctx.reply("Could not understand command. Try `?remove <user> <puzzle #>`.")
       return
 
-    if user_id in self.db.get_all_players() and puzzle_id in self.db.get_all_puzzles():
-      if self.db.remove_entry(user_id, puzzle_id):
+    if user_id in await self.db.get_all_players() and puzzle_id in await self.db.get_all_puzzles():
+      if await self.db.remove_entry(user_id, puzzle_id):
         await ctx.message.add_reaction('✅')
       else:
         await ctx.message.add_reaction('❌')

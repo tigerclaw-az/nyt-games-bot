@@ -5,7 +5,9 @@ from dotenv import load_dotenv
 from handlers.commands.connections import ConnectionsCommandHandler
 from handlers.commands.strands import StrandsCommandHandler
 from handlers.commands.wordle import WordleCommandHandler
-from utils.bot_utilities import BotUtilities
+from models import PuzzleName
+from utils.bot_typing import MyBotType
+from utils.bot_utilities import BotUtilities, DiscordReactions
 from utils.help_handler import HelpMenuHandler
 
 # parse environment variables
@@ -14,14 +16,6 @@ TOKEN = os.getenv('TOKEN', 'XXXX')
 DISCORD_ENV = os.getenv('DISCORD_ENV', 'prod')
 APPLICATION_ID = int(os.getenv('CLIENT_ID', -1))
 INVITE_LINK = os.getenv("INVITE_LINK")
-
-# build Discord client
-intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.messages = True
-intents.guild_messages = True
-intents.guild_reactions = True
 
 class LoggingFormatter(logging.Formatter):
   # Colors
@@ -71,6 +65,15 @@ file_handler.setFormatter(file_handler_formatter)
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
+# build Discord client
+intents = discord.Intents.default()
+intents.message_content = True
+intents.guilds = True
+intents.messages = True
+intents.guild_messages = True
+intents.guild_reactions = True
+client = discord.Client(intents=intents)
+
 class DiscordBot(commands.Bot):
     def __init__(self) -> None:
       # setup the bot
@@ -93,14 +96,11 @@ class DiscordBot(commands.Bot):
       self.logger = logger
       self.invite_link = INVITE_LINK
       self.guild_id = int(os.getenv('GUILD_ID', -1))
-      self.utils = BotUtilities(discord.Client(intents=intents), self)
+      self.utils = BotUtilities(client, self)
       self.help_menu = HelpMenuHandler()
 
-    async def init_db(self) -> None:
+    async def init_db(self) -> bool:
       try:
-        # self.connections.connect()
-        # self.strands.connect()
-        # self.wordle.connect()
         async with aiosqlite.connect(
           f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db"
         ) as db:
@@ -110,8 +110,9 @@ class DiscordBot(commands.Bot):
           ) as file:
             await db.executescript(file.read())
           await db.commit()
-          connection=await aiosqlite.connect(
-            f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db"
+          connection: aiosqlite.Connection = await aiosqlite.connect(
+            f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db",
+
           )
 
         self.logger.info("Database loaded & successfully logged in.")
@@ -120,8 +121,10 @@ class DiscordBot(commands.Bot):
         self.connections = ConnectionsCommandHandler(self.utils, connection)
         self.strands = StrandsCommandHandler(self.utils, connection)
         self.wordle = WordleCommandHandler(self.utils, connection)
+        return True
       except Exception as e:
-        raise RuntimeError(f"Failed to load database: {e}")
+        self.logger.error(f"Failed to load database: {e}")
+        return False
 
     @tasks.loop(minutes=1.0)
     async def status_task(self) -> None:
@@ -148,7 +151,9 @@ class DiscordBot(commands.Bot):
         f"Running on: {platform.system()} {platform.release()} ({os.name})"
       )
       self.logger.info("-------------------")
-      await self.init_db()
+      if not await self.init_db():
+        return
+
       for extension in ['cogs.members', 'cogs.owner']:
         try:
           await self.load_extension(extension)
@@ -159,8 +164,6 @@ class DiscordBot(commands.Bot):
           raise RuntimeError(f"Failed to load extension '{extension}'.\n{e}")
 
       self.status_task.start()
-      # self.user is not guaranteed to be available here
-      # self.logger.debug(f'{self.user} has connected to Discord!')
       # Setup slash commands
       try:
         self.tree.copy_global_to(guild=discord.Object(id=self.guild_id))
@@ -176,37 +179,54 @@ class DiscordBot(commands.Bot):
       else:
         self.logger.warning("self.user is None in on_ready()")
 
+    @client.event
     async def on_message(self, message: discord.Message) -> None:
-      self.logger.debug(f"on_message() :: from {message.author}: {message.content}")
+      if self.user is None:
+        return
+
+      self.logger.debug("*** on_message() ***")
+      user_id = str(message.author.id)
+      app_user_id = str(self.user.id)
+      self.logger.debug(f"Message from {message.author}: {message.content}")
+      content_length: int = message.content.count("\n")
+      self.logger.debug(f"user_id: {user_id} | content_length: {content_length} | is_bot: {user_id == app_user_id}")
+      if user_id == app_user_id:
+        self.logger.debug("Ignoring message from bot itself...")
+        # ignore messages from the bot itself
+        return
+
       try:
-        if self.user is not None and message.author.id != self.user.id and message.content.count("\n") >= 2:
+        if content_length >= 2:
           # parse non-puzzle lines from message
-          user_id = str(message.author.id)
           first_line = message.content.splitlines()[0].strip()
           first_two_lines = '\n'.join(message.content.splitlines()[:2])
+          self.logger.debug(f"first line: {first_line}")
           # add entry to either Wordle or Connections
-          if 'Wordle' in first_line and self.utils.is_wordle_submission(first_line):
+          if PuzzleName.WORDLE.value in first_line and self.utils.is_wordle_submission(first_line):
+            self.logger.debug("Wordle puzzle submitted.")
             content = '\n'.join(message.content.splitlines()[1:])
-            if self.wordle.add_entry(user_id, first_line, content):
-              await message.add_reaction('✅')
-            else:
-              await message.add_reaction('❌')
-          elif 'Connections' in first_line and self.utils.is_connections_submission(first_two_lines):
+            if await self.wordle.add_entry(user_id, first_line, content):
+              await message.add_reaction(DiscordReactions['checkmark'])
+          elif PuzzleName.CONNECTIONS.value in first_line and self.utils.is_connections_submission(first_two_lines):
+            self.logger.debug("Connections puzzle submitted.")
             content = '\n'.join(message.content.splitlines()[2:])
-            if self.connections.add_entry(user_id, first_two_lines, content):
-              await message.add_reaction('✅')
-            else:
-              await message.add_reaction('❌')
-          elif 'Strands' in first_line and self.utils.is_strands_submission(first_two_lines):
+            if await self.connections.add_entry(user_id, first_two_lines, content):
+              await message.add_reaction(DiscordReactions['checkmark'])
+          elif PuzzleName.STRANDS.value in first_line and self.utils.is_strands_submission(first_two_lines):
+            self.logger.debug("Strands puzzle submitted.")
             content = '\n'.join(message.content.splitlines()[2:])
-            if self.strands.add_entry(user_id, first_two_lines, content):
-              await message.add_reaction('✅')
-            else:
-              await message.add_reaction('❌')
+            if await self.strands.add_entry(user_id, first_two_lines, content):
+              await message.add_reaction(DiscordReactions['checkmark'])
+        else:
+          self.logger.info("Non puzzle message received.")
+          # await self.process_commands(message)
+          await message.add_reaction(DiscordReactions['crossmark'])
+
       except Exception as e:
         self.logger.error(f"Caught exception: {e}")
         traceback.print_exception(e)
 
+    @client.event
     async def on_command_error(self, context: commands.Context, error) -> None:
         """
         The code in this event is executed every time a normal valid command catches an error.
@@ -263,9 +283,20 @@ class DiscordBot(commands.Bot):
         else:
           raise error
 
-def main():
+async def main():
   bot = DiscordBot()
-  # run the bot
-  bot.run(TOKEN)
+  try:
+    # run the bot
+    await bot.start(token=TOKEN, reconnect=True)
+  except KeyboardInterrupt | asyncio.CancelledError:
+    # handle keyboard interrupt
+    await bot.close()
+    await bot.connections.db.connection.close()
+    quit()
+  except Exception as e:
+    # handle other exceptions
+    bot.logger.error(f"An error occurred: {e}")
+    traceback.print_exception(e)
+    quit()
 
 asyncio.run(main())

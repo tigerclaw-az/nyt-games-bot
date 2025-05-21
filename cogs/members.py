@@ -1,25 +1,29 @@
-import discord, traceback
+import traceback, typing
 from discord import app_commands
 from discord.ext import commands
-from handlers.commands import BaseCommandHandler
-from handlers.commands.connections import ConnectionsCommandHandler
-from handlers.commands.strands import StrandsCommandHandler
-from handlers.commands.wordle import WordleCommandHandler
-from utils.bot_utilities import BotUtilities, NYTGame
-from utils.help_handler import HelpMenuHandler
+
+from utils.bot_utilities import NYTGame
+
+if typing.TYPE_CHECKING:
+  from handlers.commands.connections import ConnectionsCommandHandler
+  from handlers.commands.strands import StrandsCommandHandler
+  from handlers.commands.wordle import WordleCommandHandler
+  from utils.bot_typing import MyBotType
+  from utils.bot_utilities import BotUtilities
+  from utils.help_handler import HelpMenuHandler
 
 class MembersCog(commands.Cog, name="members-cog"):
   # class variables
-  bot: commands.Bot
-  utils: BotUtilities
-  help_menu: HelpMenuHandler
+  bot: "MyBotType"
+  utils: "BotUtilities"
+  help_menu: "HelpMenuHandler"
 
   # games
-  connections: ConnectionsCommandHandler
-  strands: StrandsCommandHandler
-  wordle: WordleCommandHandler
+  connections: "ConnectionsCommandHandler"
+  strands: "StrandsCommandHandler"
+  wordle: "WordleCommandHandler"
 
-  def __init__(self, bot: commands.Bot):
+  def __init__(self, bot: "MyBotType") -> None:
     self.bot = bot
     self.utils = self.bot.utils
     self.help_menu = self.bot.help_menu
@@ -34,9 +38,9 @@ class MembersCog(commands.Cog, name="members-cog"):
   #####################
 
   @commands.hybrid_command(name="help", description="Show help for the bot.")
-  async def help_command(self, ctx: commands.Context, command: str = None):
+  async def help_command(self, ctx: commands.Context, command: str = '') -> None:
     # """Slash command for help."""
-    if command is None:
+    if command == '':
       await ctx.send(self.help_menu.get_all())
     else:
       await ctx.send(self.help_menu.get_message(command))
@@ -48,7 +52,7 @@ class MembersCog(commands.Cog, name="members-cog"):
   @app_commands.describe(
     puzzle_type="The puzzle type to get ranks for."
   )
-  async def get_ranks(self, ctx: commands.Context, puzzle_type: str = None) -> None:
+  async def get_ranks(self, ctx: commands.Context, puzzle_type: str = '') -> None:
     try:
       match self.utils.get_game_type(puzzle_type):
         case NYTGame.CONNECTIONS:
@@ -162,7 +166,7 @@ class MembersCog(commands.Cog, name="members-cog"):
         usage = "`?remove [<player>] <puzzle #>`", \
         owner_only=True)
 
-async def setup(bot: commands.Bot):
+async def setup(bot: "MyBotType") -> None:
   try:
     await bot.add_cog(MembersCog(bot))
     bot.logger.debug(f"Loaded {MembersCog.__name__} cog.")

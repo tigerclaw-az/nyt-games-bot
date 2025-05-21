@@ -1,23 +1,25 @@
-import traceback
+import traceback, typing
 from discord.ext import commands
 from discord import app_commands
 
-from handlers.commands.connections import ConnectionsCommandHandler
-from handlers.commands.strands import StrandsCommandHandler
-from handlers.commands.wordle import WordleCommandHandler
-from utils.bot_utilities import BotUtilities, NYTGame
+if typing.TYPE_CHECKING:
+  from handlers.commands.connections import ConnectionsCommandHandler
+  from handlers.commands.strands import StrandsCommandHandler
+  from handlers.commands.wordle import WordleCommandHandler
+  from utils.bot_typing import MyBotType
+  from utils.bot_utilities import BotUtilities, NYTGame
 
 class OwnerCog(commands.Cog, name="owner-cog"):
     # class variables
-    bot: commands.Bot
-    utils: BotUtilities
+    bot: "MyBotType"
+    utils: "BotUtilities"
 
     # games
-    connections: ConnectionsCommandHandler
-    strands: StrandsCommandHandler
-    wordle: WordleCommandHandler
+    connections: "ConnectionsCommandHandler"
+    strands: "StrandsCommandHandler"
+    wordle: "WordleCommandHandler"
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: "MyBotType"):
       self.bot = bot
       self.utils = self.bot.utils
       self.connections = self.bot.connections
@@ -41,7 +43,7 @@ class OwnerCog(commands.Cog, name="owner-cog"):
       puzzle_type="The puzzle type to remove entry.",
       command="The command to remove entry."
     )
-    async def remove_entry(self, ctx: commands.Context, puzzle_type: str, command: str = None):
+    async def remove_entry(self, ctx: commands.Context, puzzle_type: str, command: str = ''):
       match self.utils.get_game_type(puzzle_type):
         case NYTGame.CONNECTIONS:
           await self.connections.remove_entry(ctx, command)
@@ -59,7 +61,7 @@ class OwnerCog(commands.Cog, name="owner-cog"):
       puzzle_type="The puzzle type to add entry.",
       command="The command to add entry."
     )
-    async def add_score(self, ctx: commands.Context, puzzle_type: str, command: str = None):
+    async def add_score(self, ctx: commands.Context, puzzle_type: str, command: str = ''):
       match self.utils.get_game_type(puzzle_type):
         case NYTGame.CONNECTIONS:
           await self.connections.add_score(ctx, command)
@@ -68,7 +70,49 @@ class OwnerCog(commands.Cog, name="owner-cog"):
         case NYTGame.WORDLE:
           await self.wordle.add_score(ctx, command)
 
-async def setup(bot: commands.Bot):
+    @commands.hybrid_command(
+      name='update',
+      description='Updates the database and channel with old puzzles'
+    )
+    async def update(self, ctx: commands.Context) -> None:
+      await ctx.defer()
+      count = 0
+      async for message in ctx.channel.history(limit=5):
+        if (len(message.reactions) == 0):
+          await self.bot.on_message(message)
+          count += 1
+      await ctx.send(
+        content=f"Update completed. {count} messages processed.",
+        silent=True,
+      )
+
+    @commands.hybrid_command(
+      name='reset',
+      description='Resets the database',
+    )
+    async def reset(self, ctx: commands.Context) -> None:
+      await ctx.defer()
+      try:
+        await self.connections.db.reset_puzzle()
+        await self.strands.db.reset_puzzle()
+        await self.wordle.db.reset_puzzle()
+        await ctx.send(
+          content="Database reset completed.",
+          delete_after=1,
+          ephemeral=True,
+          silent=True,
+        )
+      except Exception as e:
+        self.bot.logger.error(f"Failed to reset database: {e}")
+        await ctx.send(
+          content="Database reset failed.",
+          delete_after=2,
+          ephemeral=True,
+          silent=True,
+        )
+        traceback.print_exception(e)
+
+async def setup(bot: "MyBotType") -> None:
   try:
     await bot.add_cog(OwnerCog(bot))
     bot.logger.debug(f"Loaded {OwnerCog.__name__} cog.")

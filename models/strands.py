@@ -1,4 +1,6 @@
 import statistics as stats
+import typing
+
 from handlers.database import BaseDatabaseHandler
 from models import BasePlayerStats, BasePuzzleEntry, PuzzleName
 
@@ -9,26 +11,34 @@ class StrandsPlayerStats(BasePlayerStats):
   avg_rating_raw: float
   avg_rating_adj: float
 
-  def __init__(self, user_id: str, puzzle_list: list[int], db: BaseDatabaseHandler) -> None:
-    self.user_id = user_id
-    self.puzzle_name = PuzzleName.STRANDS
+  def __init__(self) -> None:
+    super().__init__()
+    # strands-specific stats
+    self.puzzle_name: typing.LiteralString = PuzzleName.STRANDS.value.lower()
+    self.raw_mean: float = 0.0
+    self.adj_mean: float = 0.0
+    self.rank: int = -1
 
-    player_puzzles = db.get_puzzles_by_player(self.user_id)
-    player_entries: list[StrandsPuzzleEntry] = db.get_entries_by_player(self.user_id, puzzle_list)
+  async def initialize(self, user_id: str, puzzle_list: list[int], db: BaseDatabaseHandler) -> typing.Self:
+    self.user_id = user_id
+
+    player_puzzles: list[int] = await db.get_puzzles_by_player(self.user_id)
+    player_entries: list[StrandsPuzzleEntry] = await db.get_entries_by_player(self.user_id, puzzle_list)
 
     self.missed_games = len([p for p in puzzle_list if p not in player_puzzles])
 
     if len(player_entries) > 0:
-      self.avg_hints = stats.mean([e.hints for e in player_entries])
-      self.avg_spangram_index = stats.mean([e.spangram_index for e in player_entries if e.spangram_index > 0])
       self.avg_rating_raw = stats.mean([e.rating for e in player_entries])
-      self.avg_rating_adj = stats.mean([e.rating for e in player_entries] + ([2.0] * self.missed_games))
+      self.avg_rating_adj = stats.mean([e.rating for e in player_entries] + ([1.0] * self.missed_games))
+      self.avg_hints = stats.mean([e.hints for e in player_entries])
+      self.avg_spangram_index = stats.mean([e.spangram_index for e in player_entries])
     else:
-      self.avg_hints = 0.0
-      self.avg_spangram_index = 0.0
-      self.avg_rating_raw = 0.0
-      self.avg_rating_adj = 0.0
-    self.rank = -1
+      self.avg_rating_raw = 0
+      self.avg_rating_adj = 0
+      self.avg_hints = 0
+      self.avg_spangram_index = 0
+
+    return self
 
   def get_stat_list(self) -> tuple[float, float, float, float]:
     return self.avg_rating_raw, self.avg_rating_adj, self.avg_hints, self.avg_spangram_index

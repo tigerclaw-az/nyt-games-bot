@@ -1,15 +1,17 @@
+import typing
 from discord.ext import commands
-from typing import Protocol
-from handlers.database import BaseDatabaseHandler
-from utils.bot_utilities import BotUtilities
 
-class BaseCommandHandler(Protocol):
+if typing.TYPE_CHECKING:
+  from handlers.database import BaseDatabaseHandler
+  from utils.bot_utilities import BotUtilities
+
+class BaseCommandHandler(typing.Protocol):
   MAX_DATAFRAME_ROWS: int = 10
 
-  db: BaseDatabaseHandler
-  utils: BotUtilities
+  db: "BaseDatabaseHandler"
+  utils: "BotUtilities"
 
-  def __init__(self, utils: BotUtilities, db: BaseDatabaseHandler) -> None:
+  def __init__(self, utils: "BotUtilities", db: "BaseDatabaseHandler") -> None:
     self.utils = utils
     self.db = db
 
@@ -17,8 +19,8 @@ class BaseCommandHandler(Protocol):
   #   MEMBER METHODS   #
   ######################
 
-  def add_entry(self, user_id: str, title: str, puzzle: str) -> bool:
-    return self.db.add_entry(user_id, title, puzzle)
+  async def add_entry(self, user_id: str, title: str, puzzle: str) -> bool:
+    return await self.db.add_entry(user_id, title, puzzle)
 
   async def get_ranks(self, ctx: commands.Context, *args: str) -> None:
     pass
