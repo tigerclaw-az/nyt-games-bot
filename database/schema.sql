@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS `strands` (
   `puzzle_id` INTEGER,
   `user_id` INTEGER,
   `puzzle_str` TEXT NOT NULL,
-  `hINTEGERs` INTEGER NOT NULL,
+  `hints` INTEGER NOT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`puzzle_id`, `user_id`),
   FOREIGN KEY (`user_id`) REFERENCES `users`(`user_id`) ON DELETE CASCADE
