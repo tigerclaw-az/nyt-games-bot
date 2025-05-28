@@ -19,7 +19,9 @@ class OwnerCog(commands.Cog, name="owner-cog"):
     strands: "StrandsCommandHandler"
     wordle: "WordleCommandHandler"
 
-    def __init__(self, bot: "MyBotType"):
+    def __init__(self, bot: "MyBotType") -> None:
+      bot.logger.debug(f"Initializing {self.__class__.__name__} class.")
+
       self.bot = bot
       self.utils = self.bot.utils
       self.connections = self.bot.connections
@@ -29,10 +31,6 @@ class OwnerCog(commands.Cog, name="owner-cog"):
     #####################
     #   COMMAND SETUP   #
     #####################
-    # def is_owner():
-    #   async def predicate(interaction: discord.Interaction) -> bool:
-    #       return await interaction.client.is_owner(interaction.user)
-    #   return app_commands.check(predicate)
 
     @commands.is_owner()
     @commands.hybrid_command(
@@ -54,23 +52,6 @@ class OwnerCog(commands.Cog, name="owner-cog"):
 
     @commands.is_owner()
     @commands.hybrid_command(
-      name='add',
-      description='Manually adds a puzzle entry for a player'
-    )
-    @app_commands.describe(
-      puzzle_type="The puzzle type to add entry.",
-      command="The command to add entry."
-    )
-    async def add_score(self, ctx: commands.Context, puzzle_type: str, command: str = ''):
-      match self.utils.get_game_type(puzzle_type):
-        case NYTGame.CONNECTIONS:
-          await self.connections.add_score(ctx, command)
-        case NYTGame.STRANDS:
-          await self.strands.add_score(ctx, command)
-        case NYTGame.WORDLE:
-          await self.wordle.add_score(ctx, command)
-
-    @commands.hybrid_command(
       name='update',
       description='Updates the database and channel with old puzzles'
     )
@@ -86,6 +67,7 @@ class OwnerCog(commands.Cog, name="owner-cog"):
         silent=True,
       )
 
+    @commands.is_owner()
     @commands.hybrid_command(
       name='reset',
       description='Resets the database',
