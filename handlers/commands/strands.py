@@ -1,4 +1,4 @@
-import aiosqlite, discord, io, re, typing
+import discord, io, re, typing
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 import pandas as pd
@@ -15,8 +15,8 @@ if typing.TYPE_CHECKING:
   from utils.bot_utilities import BotUtilities
 
 class StrandsCommandHandler(BaseCommandHandler):
-  def __init__(self, utils: "BotUtilities", connection: aiosqlite.Connection) -> None:
-      super().__init__(utils, StrandsDatabaseHandler(utils, connection))
+  def __init__(self, utils: "BotUtilities") -> None:
+      super().__init__(utils, StrandsDatabaseHandler(utils))
       self.player_stats = StrandsPlayerStats()
 
   ######################
@@ -165,9 +165,9 @@ class StrandsCommandHandler(BaseCommandHandler):
 
       missing_ids = [user_id for user_id in await self.db.get_all_players() if user_id not in await self.db.get_players_by_puzzle_id(puzzle_id)]
       if len(missing_ids) == 0:
-          await ctx.reply(f"All tracked players have submitted Puzzle #{puzzle_id}!")
+        await ctx.reply(f"All tracked players have submitted Puzzle #{puzzle_id}!")
       else:
-          await ctx.reply("The following players are missing Puzzle #{}: <@{}>".format(puzzle_id, '>, <@'.join(missing_ids)))
+        await ctx.reply("The following players are missing Puzzle #{}: <@{}>".format(puzzle_id, '>, <@'.join(str(id) for id in missing_ids)))
 
   async def get_entries(self, ctx: commands.Context, *args: str) -> None:
       if len(args) == 0:
@@ -248,28 +248,30 @@ class StrandsCommandHandler(BaseCommandHandler):
           await ctx.reply(f"No records found for user <@{user_id}>.")
 
   async def get_stats(self, ctx: commands.Context, *args: str) -> None:
+      user_ids: list[int] = []
+      unknown_ids: list[int] = []
       missing_users_str = None
       if len(args) == 0:
-          user_ids = [str(ctx.author.id)]
+        user_ids = [ctx.author.id]
       else:
-          user_ids = []
-          unknown_ids = []
-          for arg in args:
-              if self.utils.is_user(arg):
-                  user_id = arg.strip("<@!> ")
-                  if user_id in await self.db.get_all_players():
-                      user_ids.append(user_id)
-                  else:
-                      unknown_ids.append(str(user_id))
-              else:
-                  await ctx.reply("Couldn't understand command. Try `?help <stats>`.")
-                  return
-          if len(unknown_ids) > 0:
-              if len(user_ids) > 0:
-                  missing_users_str = f"Couldn't find user(s): <@{'>, <@'.join(unknown_ids)}>"
-              else:
-                  await ctx.reply(f"Couldn't find user(s): <@{'>, <@'.join(unknown_ids)}>")
-                  return
+        for arg in args:
+          if self.utils.is_user(arg):
+            user_id = int(arg.strip("<@!> "))
+            if user_id in await self.db.get_all_players():
+              user_ids.append(user_id)
+            else:
+              unknown_ids.append(user_id)
+          else:
+            await ctx.reply("Couldn't understand command. Try `?help <stats>`.")
+            return
+
+        if len(unknown_ids) > 0:
+            ids_list = map(str, unknown_ids)
+            if len(user_ids) > 0:
+                missing_users_str = f"Couldn't find user(s): <@{'>, <@'.join(ids_list)}>"
+            else:
+                await ctx.reply(f"Couldn't find user(s): <@{'>, <@'.join(ids_list)}>")
+                return
 
       df = pd.DataFrame(columns=['User', 'Avg Rating', 'Avg Hints', 'Avg 🟡 Index', '🧩', '🚫'])
       for i, user_id in enumerate(user_ids):
@@ -293,16 +295,20 @@ class StrandsCommandHandler(BaseCommandHandler):
 
           df = pd.DataFrame(columns=['Player', 'Hints', 'Count'])
           for i, user_id in enumerate(user_ids):
-              hint_counts = [0] * len(valid_hints)
-              entries: list[StrandsPuzzleEntry] = await self.db.get_entries_by_player(user_id)
-              for hints in [entry.hints for entry in entries]:
-                  hint_counts[hints] += 1
-              for j in range(0, len(valid_hints)):
-                  df.loc[i*len(valid_hints) + j] = [
-                      self.utils.remove_emojis(self.utils.get_nickname(user_id)),
-                      valid_hints[j],
-                      hint_counts[j]
-                  ]
+            user_name = self.utils.get_nickname(user_id)
+            if user_name is None:
+              continue
+
+            hint_counts = [0] * len(valid_hints)
+            entries: list[StrandsPuzzleEntry] = await self.db.get_entries_by_player(user_id)
+            for hints in [entry.hints for entry in entries]:
+              hint_counts[hints] += 1
+            for j in range(0, len(valid_hints)):
+              df.loc[i*len(valid_hints) + j] = [
+                  self.utils.remove_emojis(user_name),
+                  valid_hints[j],
+                  hint_counts[j]
+              ]
           g = sns.catplot(x='Hints', y='Count', hue='Player', data=df, kind='bar')
           for ax in g.axes.ravel():
               for c in ax.containers:
@@ -332,13 +338,13 @@ class StrandsCommandHandler(BaseCommandHandler):
 
   async def remove_entry(self, ctx: commands.Context, *args: str) -> None:
     if len(args) == 1 and self.utils.is_user(args[0]):
-      user_id = args[0].strip("<@!> ")
+      user_id = int(args[0].strip("<@!> "))
       puzzle_id = self.db.get_puzzle_by_date(self.utils.get_todays_date())
     elif len(args) == 1 and re.match(r"^[#]?\d+$", args[0]):
-      user_id = str(ctx.author.id)
+      user_id = ctx.author.id
       puzzle_id = int(args[0].strip("# "))
     elif len(args) == 2 and self.utils.is_user(args[0]) and re.match(r"^[#]?\d+$", args[1]):
-      user_id = args[0].strip("<@!> ")
+      user_id = int(args[0].strip("<@!> "))
       puzzle_id = int(args[1].strip("# "))
     else:
       await ctx.reply("Could not understand command. Try `?remove <user> <puzzle #>`.")
@@ -352,20 +358,16 @@ class StrandsCommandHandler(BaseCommandHandler):
     else:
       await ctx.reply(f"Could not find entry for Puzzle #{puzzle_id} for user <@{user_id}>.")
 
-  async def add_score(self, ctx: commands.Context, *args: str) -> None:
-    if args is not None and len(args) >= 3:
-      if self.utils.is_user(args[0]):
-        user_id = args[0].strip("<>@! ")
-        title = f"{args[1]} {args[2]}"
-        content = '\n'.join(args[3:])
+  async def add_score(self, message: discord.Message | None, user: discord.User, *args: str) -> None:
+    self.utils.bot.logger.debug(f"Strands->add_score() :: {message}\n{user}\n{args}")
+
+    if message is not None and args is not None:
+      title = message.content.splitlines()[0].strip()
+      content = '\n'.join(message.content.splitlines()[2:])
+      self.utils.bot.logger.debug(f"{title}\n{content}\n")
+      if await self.db.add_entry(user, title, content, message.created_at):
+        await message.add_reaction('✅')
       else:
-        user_id = str(ctx.author.id)
-        title = f"{args[0]} {args[1]}"
-        content = '\n'.join(args[2:])
-      if self.utils.is_strands_submission(title):
-        if self.db.add_entry(user_id, title, content):
-          await ctx.message.add_reaction('✅')
-        else:
-          await ctx.message.add_reaction('❌')
-    else:
-      await ctx.reply("To manually add a Strands score, please use `?add <user> <Strands output>` (specifying a user is optional).")
+        await message.add_reaction('❌')
+    # else:
+    #   await ctx.reply("To manually add a Strands score, please use `?add <user> <Strands output>` (specifying a user is optional).")

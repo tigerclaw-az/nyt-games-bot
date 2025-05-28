@@ -19,7 +19,7 @@ class StrandsPlayerStats(BasePlayerStats):
     self.adj_mean: float = 0.0
     self.rank: int = -1
 
-  async def initialize(self, user_id: str, puzzle_list: list[int], db: BaseDatabaseHandler) -> typing.Self:
+  async def initialize(self, user_id: int, puzzle_list: list[int], db: BaseDatabaseHandler) -> typing.Self:
     self.user_id = user_id
 
     player_puzzles: list[int] = await db.get_puzzles_by_player(self.user_id)
@@ -53,7 +53,7 @@ class StrandsPuzzleEntry(BasePuzzleEntry):
   # contants
   HINT_PENALTY: float = 0.25
 
-  def __init__(self, puzzle_id: int, user_id: str, hints: int, puzzle_str: str) -> None:
+  def __init__(self, puzzle_id: int, user_id: int, hints: int, puzzle_str: str) -> None:
     self.puzzle_id = puzzle_id
     self.user_id = user_id
     self.hints = hints

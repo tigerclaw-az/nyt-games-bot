@@ -1,8 +1,10 @@
-import traceback, typing
-from discord import app_commands
+import discord, traceback, typing
+from discord import DiscordException, app_commands
 from discord.ext import commands
 
+from models import PuzzleName
 from utils.bot_utilities import NYTGame
+from utils.help_handler import HelpMenuHandler
 
 if typing.TYPE_CHECKING:
   from handlers.commands.connections import ConnectionsCommandHandler
@@ -10,13 +12,12 @@ if typing.TYPE_CHECKING:
   from handlers.commands.wordle import WordleCommandHandler
   from utils.bot_typing import MyBotType
   from utils.bot_utilities import BotUtilities
-  from utils.help_handler import HelpMenuHandler
 
 class MembersCog(commands.Cog, name="members-cog"):
   # class variables
   bot: "MyBotType"
   utils: "BotUtilities"
-  help_menu: "HelpMenuHandler"
+  help_menu: HelpMenuHandler
 
   # games
   connections: "ConnectionsCommandHandler"
@@ -24,6 +25,8 @@ class MembersCog(commands.Cog, name="members-cog"):
   wordle: "WordleCommandHandler"
 
   def __init__(self, bot: "MyBotType") -> None:
+    bot.logger.debug(f"Initializing {self.__class__.__name__} class.")
+
     self.bot = bot
     self.utils = self.bot.utils
     self.help_menu = self.bot.help_menu
@@ -32,6 +35,64 @@ class MembersCog(commands.Cog, name="members-cog"):
     self.connections = self.bot.connections
     self.strands = self.bot.strands
     self.wordle = self.bot.wordle
+
+    self.ctx_menu = app_commands.ContextMenu(
+      name      = 'Add Puzzle Entry',
+      callback  = self.add_puzzle_entry,
+      type      = discord.AppCommandType.message
+    )
+    self.bot.tree.add_command(self.ctx_menu)
+
+  async def cog_unload(self) -> None:
+    self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
+
+  async def add_puzzle_entry(self, interaction: discord.Interaction, message: discord.Message) -> None:
+      self.bot.logger.debug(f"add_puzzle_entry() :: {interaction}\n{message}")
+
+      if interaction is None or message is None:
+        self.bot.logger.error(f"Interaction and Message cannot be `None`")
+        await interaction.response.send_message(
+          content=f"An error ocurred trying to add puzzle",
+          ephemeral=True,
+          delete_after=30,
+        )
+        raise RuntimeError(f"Interaction cannot be `None`")
+
+      content = message.content
+      user = typing.cast(discord.User, message.author)
+      self.bot.logger.debug(f"{content}\n<{user}>")
+
+      puzzle_type: str = ''
+      try:
+        if self.utils.is_connections_submission(content):
+          await self.connections.add_score(message, user, content)
+          puzzle_type = PuzzleName.CONNECTIONS.value
+        elif self.utils.is_strands_submission(content):
+          await self.strands.add_score(message, user, content)
+          puzzle_type = PuzzleName.STRANDS.value
+        elif self.utils.is_wordle_submission(content):
+          await self.wordle.add_score(message, user, content)
+          puzzle_type = PuzzleName.WORDLE.value
+        else:
+          await interaction.response.send_message(
+            content=f"Unknown puzzle type, couldn't add puzzle.",
+            ephemeral=True,
+            delete_after=60,
+          )
+          return
+
+        await interaction.response.send_message(
+          content=f"{puzzle_type} puzzle added succesfully!",
+          ephemeral=True,
+          delete_after=30,
+        )
+      except Exception as e:
+        await interaction.response.send_message(
+          content=f"An error ocurred: {e}",
+          ephemeral=True,
+          delete_after=30,
+        )
+
 
   #####################
   #   COMMAND SETUP   #
@@ -157,10 +218,6 @@ class MembersCog(commands.Cog, name="members-cog"):
     self.help_menu.add('view', \
         explanation = "View specific details of one or more entries.", \
         usage = "`?view [<player>] <puzzle #1> [<puzzle #2> ...]`")
-    self.help_menu.add('add', \
-        explanation = "Manually add an entry to the database.", \
-        usage = "`?add [<player>] <entry>`", \
-        owner_only=True)
     self.help_menu.add('remove', \
         explanation = "Remove an entry from the database.", \
         usage = "`?remove [<player>] <puzzle #>`", \

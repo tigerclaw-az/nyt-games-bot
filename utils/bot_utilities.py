@@ -1,7 +1,5 @@
-import discord, io, re, typing
-from logging import Logger
+import aiosqlite, discord, io, re
 from bokeh.io.export import get_screenshot_as_png
-from bokeh.layouts import column
 from bokeh.models import ColumnDataSource, DataTable, TableColumn
 from enum import Enum, auto
 from datetime import date, datetime, timedelta, timezone
@@ -32,11 +30,12 @@ class NYTGame(Enum):
   UNKNOWN = auto()
 
 class BotUtilities():
-  def __init__(self, client: discord.Client, bot: MyBotType) -> None:
+  def __init__(self, client: discord.Client, bot: MyBotType, connection: aiosqlite.Connection) -> None:
     bot.logger.debug(f"Initializing {self.__class__.__name__} class.")
 
-    self.client: discord.Client = client
     self.bot: MyBotType = bot
+    self.client: discord.Client = client
+    self.connection: aiosqlite.Connection = connection
 
   # GAME TYPE
   def get_game_type(self, puzzle_type: str) -> NYTGame:
@@ -51,17 +50,19 @@ class BotUtilities():
 
   # QUERIES
 
-  def get_nickname(self, user_id: str) -> str:
-    guild: discord.Guild | None = self.bot.get_guild(self.bot.guilds[0].id)
+  def get_nickname(self, user_id: int) -> str | None:
+    guild_id = self.bot.guilds[0].id
+    guild: discord.Guild | None = self.bot.get_guild(guild_id)
     if guild is None:
-      self.bot.logger.error(f"Guild not found with ID: {self.bot.guilds[0].id}")
-      return "?"
+      self.bot.logger.error(f"Guild not found with ID: {guild_id}")
+      return None
 
+    self.bot.logger.debug(f"get_nickname():: {user_id}|{guild.members}")
     for member in guild.members:
-      if str(member.id) == str(user_id):
+      if member.id == user_id:
         return member.display_name
 
-    return "?"
+    return None
 
   # VALIDATION
 
@@ -74,8 +75,8 @@ class BotUtilities():
   def is_sunday(self, query_date: date) -> bool:
     return query_date.strftime('%A') == 'Sunday'
 
-  def is_wordle_submission(self, line: str) -> re.Match | None:
-    return re.match(r'^Wordle (\d+|\d{1,3}(,\d{3})*)( 🎉)? (\d|X)\/\d$', line)
+  def is_wordle_submission(self, lines: str) -> re.Match | None:
+    return re.match(r'^Wordle (\d+|\d{1,3}(,\d{3})*)( 🎉)? (\d|X)\/\d', lines)
 
   def is_connections_submission(self, lines: str) -> re.Match | None:
     return re.match(r'^Connections *(\n)Puzzle #\d+', lines)
@@ -86,7 +87,7 @@ class BotUtilities():
   # DATES/TIMES
 
   def get_todays_date(self) -> date:
-    return datetime.now(timezone(timedelta(hours=-5), 'EST')).date()
+    return datetime.now(timezone(timedelta(hours=-7), 'MST')).date()
 
   def get_week_start(self, query_date: date) -> date:
     return query_date - timedelta(days = (query_date.weekday() + 1) % 7)

@@ -1,4 +1,5 @@
-import typing
+import discord, typing
+from datetime import date
 from discord.ext import commands
 
 if typing.TYPE_CHECKING:
@@ -19,8 +20,10 @@ class BaseCommandHandler(typing.Protocol):
   #   MEMBER METHODS   #
   ######################
 
-  async def add_entry(self, user_id: str, title: str, puzzle: str) -> bool:
-    return await self.db.add_entry(user_id, title, puzzle)
+  async def add_entry(self, user: discord.User | discord.Member, title: str, puzzle: str, datetime = None) -> bool:
+    if not datetime:
+      datetime = self.utils.get_todays_date()
+    return await self.db.add_entry(user, title, puzzle, datetime)
 
   async def get_ranks(self, ctx: commands.Context, *args: str) -> None:
     pass
@@ -44,5 +47,5 @@ class BaseCommandHandler(typing.Protocol):
   async def remove_entry(self, ctx: commands.Context, *args: str) -> None:
     pass
 
-  async def add_score(self, ctx: commands.Context, *args: str) -> None:
+  async def add_score(self, message: discord.Message | None, user: discord.User, *args: str) -> None:
     pass

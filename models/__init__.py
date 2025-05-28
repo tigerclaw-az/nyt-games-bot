@@ -19,14 +19,14 @@ class BasePlayerStats(Protocol):
   missed_games: int
   puzzle_name: str
   rank: int
-  user_id: str
+  user_id: int
 
   def __init__(self) -> None:
     self.missed_games = 0
     self.puzzle_name = ""
     self.rank = -1
-    self.user_id = ""
+    self.user_id = -1
 
 class BasePuzzleEntry(Protocol):
   puzzle_id: int
-  user_id: str
+  user_id: int

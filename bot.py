@@ -1,3 +1,4 @@
+from typing import cast
 import aiosqlite, asyncio, os, discord, logging, platform, random, traceback
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
@@ -96,7 +97,6 @@ class DiscordBot(commands.Bot):
       self.logger = logger
       self.invite_link = INVITE_LINK
       self.guild_id = int(os.getenv('GUILD_ID', -1))
-      self.utils = BotUtilities(client, self)
       self.help_menu = HelpMenuHandler()
 
     async def init_db(self) -> bool:
@@ -117,10 +117,12 @@ class DiscordBot(commands.Bot):
 
         self.logger.info("Database loaded & successfully logged in.")
 
+        self.utils = BotUtilities(client, self, connection) # type: ignore
+
         # create games
-        self.connections = ConnectionsCommandHandler(self.utils, connection)
-        self.strands = StrandsCommandHandler(self.utils, connection)
-        self.wordle = WordleCommandHandler(self.utils, connection)
+        self.connections = ConnectionsCommandHandler(self.utils)
+        self.strands = StrandsCommandHandler(self.utils)
+        self.wordle = WordleCommandHandler(self.utils)
         return True
       except Exception as e:
         self.logger.error(f"Failed to load database: {e}")
@@ -148,7 +150,7 @@ class DiscordBot(commands.Bot):
       self.logger.info(f"discord.py API version: {discord.__version__}")
       self.logger.info(f"Python version: {platform.python_version()}")
       self.logger.info(
-        f"Running on: {platform.system()} {platform.release()} ({os.name})"
+        f"Running on: {platform.system()} {platform.release()}"
       )
       self.logger.info("-------------------")
       if not await self.init_db():
@@ -172,10 +174,12 @@ class DiscordBot(commands.Bot):
       except Exception as e:
         self.logger.error(f"Failed to sync slash commands for guild ID {self.guild_id}.\n{e}")
 
+    @client.event
     async def on_ready(self):
       if self.user is not None:
         self.logger.info(f"Logged in as {self.user.name}")
         self.logger.debug(f'{self.user} has connected to Discord!')
+        # TODO: check for new messages in chat history and add them to the database
       else:
         self.logger.warning("self.user is None in on_ready()")
 
@@ -185,12 +189,12 @@ class DiscordBot(commands.Bot):
         return
 
       self.logger.debug("*** on_message() ***")
-      user_id = str(message.author.id)
-      app_user_id = str(self.user.id)
+      user = message.author
+      app_user_id = self.user.id
       self.logger.debug(f"Message from {message.author}: {message.content}")
       content_length: int = message.content.count("\n")
-      self.logger.debug(f"user_id: {user_id} | content_length: {content_length} | is_bot: {user_id == app_user_id}")
-      if user_id == app_user_id:
+      self.logger.debug(f"user_id: {user} | content_length: {content_length} | is_bot: {user.id == app_user_id}")
+      if user.id == app_user_id:
         self.logger.debug("Ignoring message from bot itself...")
         # ignore messages from the bot itself
         return
@@ -200,33 +204,51 @@ class DiscordBot(commands.Bot):
           # parse non-puzzle lines from message
           first_line = message.content.splitlines()[0].strip()
           first_two_lines = '\n'.join(message.content.splitlines()[:2])
-          self.logger.debug(f"first line: {first_line}")
-          # add entry to either Wordle or Connections
-          if PuzzleName.WORDLE.value in first_line and self.utils.is_wordle_submission(first_line):
-            self.logger.debug("Wordle puzzle submitted.")
-            content = '\n'.join(message.content.splitlines()[1:])
-            if await self.wordle.add_entry(user_id, first_line, content):
-              await message.add_reaction(DiscordReactions['checkmark'])
-          elif PuzzleName.CONNECTIONS.value in first_line and self.utils.is_connections_submission(first_two_lines):
+          content: str = ''
+          if PuzzleName.CONNECTIONS.value in first_line and self.utils.is_connections_submission(first_two_lines):
             self.logger.debug("Connections puzzle submitted.")
             content = '\n'.join(message.content.splitlines()[2:])
-            if await self.connections.add_entry(user_id, first_two_lines, content):
+            if await self.connections.add_entry(user, first_two_lines, content):
               await message.add_reaction(DiscordReactions['checkmark'])
           elif PuzzleName.STRANDS.value in first_line and self.utils.is_strands_submission(first_two_lines):
             self.logger.debug("Strands puzzle submitted.")
             content = '\n'.join(message.content.splitlines()[2:])
-            if await self.strands.add_entry(user_id, first_two_lines, content):
+            if await self.strands.add_entry(user, first_two_lines, content):
+              await message.add_reaction(DiscordReactions['checkmark'])
+          elif PuzzleName.WORDLE.value in first_line and self.utils.is_wordle_submission(first_line):
+            self.logger.debug("Wordle puzzle submitted.")
+            content = '\n'.join(message.content.splitlines()[1:])
+            if await self.wordle.add_entry(user, first_line, content):
               await message.add_reaction(DiscordReactions['checkmark'])
         else:
-          self.logger.info("Non puzzle message received.")
+          self.logger.info("Non-puzzle message received.")
           # await self.process_commands(message)
-          await message.add_reaction(DiscordReactions['crossmark'])
 
       except Exception as e:
-        self.logger.error(f"Caught exception: {e}")
-        traceback.print_exception(e)
+        raise e
 
-    @client.event
+    async def on_command_completion(self, context: commands.Context) -> None:
+      """
+      The code in this event is executed every time a normal command has been *successfully* executed.
+
+      :param context: The context of the command that has been executed.
+      """
+      if context.command is None:
+        self.logger.warning("`context.command` is `None` in on_command_completion()")
+        return
+
+      full_command_name = context.command.qualified_name
+      split = full_command_name.split(" ")
+      executed_command = str(split[0])
+      if context.guild is not None:
+        self.logger.info(
+            f"Executed `{executed_command}` command in {context.guild.name} by {context.author}"
+        )
+      else:
+        self.logger.info(
+            f"Executed `{executed_command}` command by {context.author} in DMs"
+        )
+
     async def on_command_error(self, context: commands.Context, error) -> None:
         """
         The code in this event is executed every time a normal valid command catches an error.
@@ -237,15 +259,17 @@ class DiscordBot(commands.Bot):
         if isinstance(error, commands.CommandOnCooldown):
           minutes, seconds = divmod(error.retry_after, 60)
           hours, minutes = divmod(minutes, 60)
-          hours = hours % 24
+          hours: float = hours % 24
+          time: str = f"{f'{round(hours)}h' if round(hours) > 0 else ''} {f'{round(minutes)}m' if round(minutes) > 0 else ''} {f'{round(seconds)}s' if round(seconds) > 0 else ''}"
           embed = discord.Embed(
-            description=f"**Please slow down** - You can use this command again in {f'{round(hours)} hours' if round(hours) > 0 else ''} {f'{round(minutes)} minutes' if round(minutes) > 0 else ''} {f'{round(seconds)} seconds' if round(seconds) > 0 else ''}.",
+            description=f"**Please slow down** - You can use this command again in {time}.",
             color=0xE02B2B,
           )
           await context.send(embed=embed)
         elif isinstance(error, commands.NotOwner):
           embed = discord.Embed(
-            description="You are not the owner of the bot!", color=0xE02B2B
+            description="You are not the owner of the bot!",
+            color=0xE02B2B
           )
           await context.send(embed=embed)
           if context.guild:
@@ -258,24 +282,21 @@ class DiscordBot(commands.Bot):
             )
         elif isinstance(error, commands.MissingPermissions):
           embed = discord.Embed(
-            description="You are missing the permission(s) `"
-            + ", ".join(error.missing_permissions)
-            + "` to execute this command!",
+            description=f"You are missing the permission(s) `{", ".join(error.missing_permissions)}` to execute this command!",
             color=0xE02B2B,
           )
           await context.send(embed=embed)
         elif isinstance(error, commands.BotMissingPermissions):
           embed = discord.Embed(
-            description="I am missing the permission(s) `"
-            + ", ".join(error.missing_permissions)
-            + "` to fully perform this command!",
+            description=f"I am missing the permission(s) `{', '.join(error.missing_permissions)}`  to fully perform this command!",
             color=0xE02B2B,
           )
           await context.send(embed=embed)
         elif isinstance(error, commands.MissingRequiredArgument):
           embed = discord.Embed(
             title="Error!",
-            # We need to capitalize because the command arguments have no capital letter in the code and they are the first word in the error message.
+            # We need to capitalize because the command arguments have no capital letter in the
+            # code and they are the first word in the error message.
             description=str(error).capitalize(),
             color=0xE02B2B,
           )
@@ -283,20 +304,48 @@ class DiscordBot(commands.Bot):
         else:
           raise error
 
-async def main():
+    async def close(self) -> None:
+      """
+      This is called when the bot is closed.
+      """
+      if self.utils.connection:
+        self.logger.info("Closing the database connection...")
+        try:
+          await self.utils.connection.commit()
+          await self.utils.connection.close()
+        except Exception as e:
+          self.logger.error(f"Failed to close the database connection: {e}")
+          raise e
+
+      self.logger.info("Closing the bot...")
+      try:
+        await super().close()
+        self.logger.info("Bot closed.")
+      except Exception as e:
+        self.logger.error(f"Failed to close the bot: {e}")
+        raise e
+
+async def main() -> None:
   bot = DiscordBot()
+
   try:
     # run the bot
-    await bot.start(token=TOKEN, reconnect=True)
-  except KeyboardInterrupt | asyncio.CancelledError:
+    await bot.start(token=TOKEN)
+    bot.logger.info("Bot is running...")
+  except KeyboardInterrupt:
     # handle keyboard interrupt
-    await bot.close()
-    await bot.connections.db.connection.close()
-    quit()
+    print("KeyboardInterrupt detected. Shutting down gracefully...")
+  except asyncio.CancelledError as e:
+    # handle cancelled error
+    print("asyncio.CancelledError detected. Shutting down gracefully...")
   except Exception as e:
     # handle other exceptions
-    bot.logger.error(f"An error occurred: {e}")
+    print(f"An error occurred: {e}")
     traceback.print_exception(e)
-    quit()
+  finally:
+    await bot.close()
 
-asyncio.run(main())
+if __name__ == "__main__":
+  if platform.system() == 'Windows':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+  asyncio.run(main())

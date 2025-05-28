@@ -22,7 +22,7 @@ class WordlePlayerStats(BasePlayerStats):
     self.adj_mean: float = 0.0
     self.raw_mean: float = 0.0
 
-  async def initialize(self, user_id: str, puzzle_list: list[int], db: BaseDatabaseHandler) -> typing.Self:
+  async def initialize(self, user_id: int, puzzle_list: list[int], db: BaseDatabaseHandler) -> typing.Self:
     self.user_id = user_id
 
     player_puzzles: list[int] = await db.get_puzzles_by_player(self.user_id)
@@ -55,7 +55,7 @@ class WordlePuzzleEntry(BasePuzzleEntry):
   yellow: int
   other: int
 
-  def __init__(self, puzzle_id: int, user_id: str, score: int, green: int, yellow: int, other: int) -> None:
+  def __init__(self, puzzle_id: int, user_id: int, score: int, green: int, yellow: int, other: int) -> None:
     self.puzzle_id = puzzle_id
     self.user_id = user_id
     self.score = score

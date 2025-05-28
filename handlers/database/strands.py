@@ -1,4 +1,4 @@
-import aiosqlite, re
+import discord, re
 from datetime import date
 
 from handlers.database import BaseDatabaseHandler
@@ -7,9 +7,10 @@ from models.strands import StrandsPuzzleEntry
 from utils.bot_utilities import BotUtilities
 
 class StrandsDatabaseHandler(BaseDatabaseHandler):
-  def __init__(self, utils: BotUtilities, connection: aiosqlite.Connection) -> None:
+  def __init__(self, utils: BotUtilities) -> None:
+    utils.bot.logger.debug(f"Initializing {self.__class__.__name__} class.")
     # init
-    super().__init__(utils, connection)
+    super().__init__(utils)
     self.puzzle_name = PuzzleName.STRANDS.value.lower()
 
     # puzzles
@@ -20,40 +21,41 @@ class StrandsDatabaseHandler(BaseDatabaseHandler):
   #  PUZZLE METHODS  #
   ####################
 
-  async def add_entry(self, user_id: str, title: str, puzzle: str) -> bool:
-    self._utils.bot.logger.debug(f"Strands->add_entry() :: {title} | {puzzle}")
+  async def add_entry(self, user: discord.User | discord.Member, title: str, puzzle: str, datetime) -> bool:
     puzzle_id_title = re.findall(r'[\d,]+', title)
     hints: int = puzzle.count('💡')
+    self.utils.bot.logger.debug(f"Strands->add_entry() :: {puzzle_id_title}\n{puzzle}\n->{hints}")
 
     if puzzle_id_title:
       puzzle_id = int(str(puzzle_id_title[0]).replace(',', ''))
     else:
       return False
 
-    await self.add_user_if_not_exists(user_id)
+    await self.add_user_if_not_exists(user)
+    user_id: int = user.id
 
     if await self.entry_exists(user_id, puzzle_id):
-      self._utils.bot.logger.debug(f"Entry already exists for {user_id} and {puzzle_id}.")
+      self.utils.bot.logger.debug(f"Entry already exists for {user_id} and {puzzle_id}.")
       await self.connection.execute(
-        f"update {self.puzzle_name} set hints = {hints}, puzzle_str = '{puzzle}' "
-            + f"where user_id = '{user_id}' and puzzle_id = '{puzzle_id}'"
+        f"update {self.puzzle_name} set hints = ?, puzzle_str = ? where user_id = ? and puzzle_id = ?",
+        (hints, puzzle, user_id, puzzle_id,)
       )
     else:
-      self._utils.bot.logger.debug(f"Adding entry for {user_id} and {puzzle_id}.")
+      self.utils.bot.logger.debug(f"Adding entry for {user_id} and {puzzle_id}.")
       await self.connection.execute(
         f"insert into {self.puzzle_name} values (?, ?, ?, ?, ?)",
-        (puzzle_id, user_id, puzzle, hints, None)
+        (puzzle_id, user_id, puzzle, hints, datetime,)
       )
 
     await self.connection.commit()
-    self._utils.bot.logger.debug(f"total_changes: {self.connection.total_changes}")
+    self.utils.bot.logger.debug(f"total_changes: {self.connection.total_changes}")
     return self.connection.total_changes > 0
 
   ####################
   #  PLAYER METHODS  #
   ####################
 
-  async def get_entries_by_player(self, user_id: str, puzzle_list: list[int] = []) -> list[StrandsPuzzleEntry]:
+  async def get_entries_by_player(self, user_id: int, puzzle_list: list[int] = []) -> list[StrandsPuzzleEntry]:
     if not puzzle_list or len(puzzle_list) == 0:
       query = f"select puzzle_id, hints, puzzle_str from {self.puzzle_name} where user_id = {user_id}"
     else:

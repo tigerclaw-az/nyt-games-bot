@@ -1,5 +1,5 @@
+import discord, re
 from turtle import pu
-import aiosqlite, re
 from datetime import date
 
 from handlers.database import BaseDatabaseHandler
@@ -8,9 +8,11 @@ from models.wordle import WordlePuzzleEntry
 from utils.bot_utilities import BotUtilities
 
 class WordleDatabaseHandler(BaseDatabaseHandler):
-  def __init__(self, utils: BotUtilities, connection: aiosqlite.Connection) -> None:
+  def __init__(self, utils: BotUtilities) -> None:
+    utils.bot.logger.debug(f"Initializing {self.__class__.__name__} class.")
+
     # init
-    super().__init__(utils, connection)
+    super().__init__(utils)
     self.puzzle_name = PuzzleName.WORDLE.value.lower()
 
     # puzzles
@@ -21,8 +23,9 @@ class WordleDatabaseHandler(BaseDatabaseHandler):
   #  PUZZLE METHODS  #
   ####################
 
-  async def add_entry(self, user_id: str, title: str, puzzle: str) -> bool:
-    self._utils.bot.logger.debug(f"Wordle->add_entry() :: {title} | {puzzle}")
+  async def add_entry(self, user: discord.User | discord.Member, title: str, puzzle: str, datetime) -> bool:
+    self.utils.bot.logger.debug(f"Wordle->add_entry()::<{user}>\n{title}\n{puzzle}")
+
     # Extract puzzle ID and score from the title
     puzzle_id_str: str = ''
     score_str: str = ''
@@ -51,33 +54,33 @@ class WordleDatabaseHandler(BaseDatabaseHandler):
     total_green: int = puzzle.count('🟩')
     total_yellow: int = puzzle.count('🟨')
     total_other: int = puzzle.count('⬜') + puzzle.count('⬛')
-    self._utils.bot.logger.debug(f"{puzzle_id} | {score} | {puzzle}")
+    self.utils.bot.logger.debug(f"{puzzle_id}\n{puzzle}\n{total_green}:{total_yellow}:{total_other}\n->{score}")
 
-
-    await self.add_user_if_not_exists(user_id)
+    await self.add_user_if_not_exists(user)
+    user_id: int = user.id
 
     if await self.entry_exists(user_id, puzzle_id):
-      self._utils.bot.logger.debug(f"Entry already exists for {user_id} and {puzzle_id}.")
+      self.utils.bot.logger.debug(f"Entry already exists for {user_id} and {puzzle_id}.")
       await self.connection.execute(
-        f"update {self.puzzle_name} set score = {score}, green = {total_green}, yellow = {total_yellow}, other = {total_other} "
-          + f"where user_id = '{user_id}' and puzzle_id = '{puzzle_id}'"
+        f"update {self.puzzle_name} set score = ?, green = ?, yellow = ?, other = ? where user_id = ? and puzzle_id = ?",
+        (score, total_green, total_yellow, total_other, user_id, puzzle_id,)
       )
     else:
-      self._utils.bot.logger.debug(f"Adding entry for {user_id} and {puzzle_id}.")
+      self.utils.bot.logger.debug(f"Adding entry for {user_id} and {puzzle_id}.")
       await self.connection.execute(
         f"insert into {self.puzzle_name} values (?,?,?,?,?,?,?,?)",
-        (puzzle_id, user_id, puzzle, score, total_green, total_yellow, total_other, None)
+        (puzzle_id, user_id, puzzle, score, total_green, total_yellow, total_other, datetime)
       )
 
     await self.connection.commit()
-    self._utils.bot.logger.debug(f"total_changes: {self.connection.total_changes}")
+    self.utils.bot.logger.debug(f"total_changes: {self.connection.total_changes}")
     return self.connection.total_changes > 0
 
   ####################
   #  PLAYER METHODS  #
   ####################
 
-  async def get_entries_by_player(self, user_id: str, puzzle_list: list[int] = []) -> list[WordlePuzzleEntry]:
+  async def get_entries_by_player(self, user_id: int, puzzle_list: list[int] = []) -> list[WordlePuzzleEntry]:
     if not puzzle_list or len(puzzle_list) == 0:
       query = f"select puzzle_id, score, green, yellow, other from {self.puzzle_name} where user_id = {user_id} AND puzzle_name = {self.puzzle_name}"
     else:

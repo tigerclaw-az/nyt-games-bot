@@ -1,4 +1,4 @@
-import aiosqlite, discord, io, re, typing
+import discord, io, re, typing
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 import pandas as pd
@@ -15,8 +15,8 @@ if typing.TYPE_CHECKING:
   from utils.bot_utilities import BotUtilities
 
 class WordleCommandHandler(BaseCommandHandler):
-  def __init__(self, utils: "BotUtilities", connection: aiosqlite.Connection) -> None:
-    super().__init__(utils, WordleDatabaseHandler(utils, connection))
+  def __init__(self, utils: "BotUtilities") -> None:
+    super().__init__(utils, WordleDatabaseHandler(utils))
     self.player_stats = WordlePlayerStats()
 
   ######################
@@ -167,9 +167,9 @@ class WordleCommandHandler(BaseCommandHandler):
 
     missing_ids = [user_id for user_id in await self.db.get_all_players() if user_id not in await self.db.get_players_by_puzzle_id(puzzle_id)]
     if len(missing_ids) == 0:
-        await ctx.reply(f"All tracked players have submitted Puzzle #{puzzle_id}!")
+      await ctx.reply(f"All tracked players have submitted Puzzle #{puzzle_id}!")
     else:
-        await ctx.reply("The following players are missing Puzzle #{}: <@{}>".format(puzzle_id, '>, <@'.join(missing_ids)))
+      await ctx.reply("The following players are missing Puzzle #{}: <@{}>".format(puzzle_id, '>, <@'.join(str(id) for id in missing_ids)))
 
   async def get_entries(self, ctx: commands.Context, *args: str) -> None:
     if len(args) == 0:
@@ -214,67 +214,67 @@ class WordleCommandHandler(BaseCommandHandler):
     puzzle_ids.sort()
 
     if user_id in await self.db.get_all_players():
-        user_puzzles: list[WordlePuzzleEntry] = await self.db.get_entries_by_player(user_id)
-        df = pd.DataFrame(columns=['User', 'Puzzle', 'Score', '🟩', '🟨', '⬜'])
-        for i, puzzle_id in enumerate(puzzle_ids):
-            found_match = False
-            for entry in user_puzzles:
-                if entry.puzzle_id == puzzle_id:
-                    score_str = 'X' if entry.score == 7 else str(entry.score)
-                    df.loc[i] = [
-                        self.utils.get_nickname(user_id),
-                        f"#{puzzle_id}",
-                        f"{score_str}/6",
-                        entry.green,
-                        entry.yellow,
-                        entry.other
-                    ]
-                    found_match = True
-                    break
-            if not found_match:
-                df.loc[i] = [
-                    self.utils.get_nickname(user_id),
-                    f"#{puzzle_id}",
-                    "?/6",
-                    "?",
-                    "?",
-                    "?"
-                ]
-        entries_img = self.utils.get_image_from_df(df)
-        if entries_img is not None:
-          with io.BytesIO() as image_binary:
-            entries_img.save(image_binary, 'PNG')
-            image_binary.seek(0)
-            await ctx.reply(file=discord.File(fp=image_binary, filename='image.png'))
-        else:
-          await ctx.reply("Sorry, failed to fetch stats.")
+      user_puzzles: list[WordlePuzzleEntry] = await self.db.get_entries_by_player(user_id)
+      df = pd.DataFrame(columns=['User', 'Puzzle', 'Score', '🟩', '🟨', '⬜'])
+      for i, puzzle_id in enumerate(puzzle_ids):
+        found_match = False
+        for entry in user_puzzles:
+          if entry.puzzle_id == puzzle_id:
+            score_str = 'X' if entry.score == 7 else str(entry.score)
+            df.loc[i] = [
+                self.utils.get_nickname(user_id),
+                f"#{puzzle_id}",
+                f"{score_str}/6",
+                entry.green,
+                entry.yellow,
+                entry.other
+            ]
+            found_match = True
+            break
+        if not found_match:
+          df.loc[i] = [
+              self.utils.get_nickname(user_id),
+              f"#{puzzle_id}",
+              "?/6",
+              "?",
+              "?",
+              "?"
+          ]
+      entries_img = self.utils.get_image_from_df(df)
+      if entries_img is not None:
+        with io.BytesIO() as image_binary:
+          entries_img.save(image_binary, 'PNG')
+          image_binary.seek(0)
+          await ctx.reply(file=discord.File(fp=image_binary, filename='image.png'))
+      else:
+        await ctx.reply("Sorry, failed to fetch stats.")
     else:
       await ctx.reply(f"No records found for user <@{user_id}>.")
 
   async def get_stats(self, ctx: commands.Context, *args: str) -> None:
+    user_ids: list[int] = []
+    unknown_ids: list[int] = []
     missing_users_str = None
-    user_ids: list[str] = []
 
     if len(args) == 0:
-      user_ids = [str(ctx.author.id)]
+      user_ids = [ctx.author.id]
     else:
-      user_ids = []
-      unknown_ids = []
       for arg in args:
         if self.utils.is_user(arg):
-          user_id = arg.strip("<@!> ")
+          user_id = int(arg.strip("<@!> "))
           if user_id in await self.db.get_all_players():
             user_ids.append(user_id)
           else:
-            unknown_ids.append(str(user_id))
+            unknown_ids.append(user_id)
         else:
           await ctx.reply("Couldn't understand command. Try `?help <stats>`.")
           return
       if len(unknown_ids) > 0:
+        ids_list = map(str, unknown_ids)
         if len(user_ids) > 0:
-          missing_users_str = f"Couldn't find user(s): <@{'>, <@'.join(unknown_ids)}>"
+          missing_users_str = f"Couldn't find user(s): <@{'>, <@'.join(ids_list)}>"
         else:
-          await ctx.reply(f"Couldn't find user(s): <@{'>, <@'.join(unknown_ids)}>")
+          await ctx.reply(f"Couldn't find user(s): <@{'>, <@'.join(ids_list)}>")
           return
 
     df = pd.DataFrame(columns=['User', 'Avg Score', 'Avg 🟩', 'Avg 🟨', 'Avg ⬜', '🧩', '🚫'])
@@ -295,44 +295,47 @@ class WordleCommandHandler(BaseCommandHandler):
 
     hist_img = None
     if len(user_ids) < 5:
-        valid_scores = ['1/6', '2/6', '3/6', '4/6', '5/6', '6/6', 'X/6']
-        plt.rcParams.update({'font.size': 20})
+      valid_scores = ['1/6', '2/6', '3/6', '4/6', '5/6', '6/6', 'X/6']
+      plt.rcParams.update({'font.size': 20})
 
-        df = pd.DataFrame(columns=['Player', 'Score', 'Count'])
-        for i, user_id in enumerate(user_ids):
-            score_counts = [0] * len(valid_scores)
-            entries: list[WordlePuzzleEntry] = await self.db.get_entries_by_player(user_id)
-            for score in [entry.score for entry in entries]:
-                score_counts[score - 1] += 1
-            for j in range(0, len(valid_scores)):
-                df.loc[i*len(valid_scores) + j] = [
-                    self.utils.remove_emojis(self.utils.get_nickname(user_id)),
-                    valid_scores[j],
-                    score_counts[j]
-                ]
-        g = sns.catplot(x='Score', y='Count', hue='Player', data=df, kind='bar')
-        for ax in g.axes.ravel():
-            for c in ax.containers:
-                labels = ['%d' % v.get_height() for v in c]
-                ax.bar_label(c, labels=labels, label_type='edge', fontsize=15)
-        fig: Figure = plt.gcf()
-        fig.subplots_adjust(bottom=0.2)
-        fig.set_size_inches(10, 5)
-        hist_img = self.utils.fig_to_image(fig)
-        hist_img = self.utils.resize_image(hist_img, width = stats_img.size[0])
-        plt.close()
+      df = pd.DataFrame(columns=['Player', 'Score', 'Count'])
+      for i, user_id in enumerate(user_ids):
+        user_name = self.utils.get_nickname(user_id)
+        if user_name is None:
+          continue
+        score_counts = [0] * len(valid_scores)
+        entries: list[WordlePuzzleEntry] = await self.db.get_entries_by_player(user_id)
+        for score in [entry.score for entry in entries]:
+          score_counts[score - 1] += 1
+        for j in range(0, len(valid_scores)):
+          df.loc[i*len(valid_scores) + j] = [
+            self.utils.remove_emojis(user_name),
+            valid_scores[j],
+            score_counts[j]
+          ]
+      g = sns.catplot(x='Score', y='Count', hue='Player', data=df, kind='bar')
+      for ax in g.axes.ravel():
+        for c in ax.containers:
+          labels = ['%d' % v.get_height() for v in c]
+          ax.bar_label(c, labels=labels, label_type='edge', fontsize=15)
+      fig: Figure = plt.gcf()
+      fig.subplots_adjust(bottom=0.2)
+      fig.set_size_inches(10, 5)
+      hist_img = self.utils.fig_to_image(fig)
+      hist_img = self.utils.resize_image(hist_img, width = stats_img.size[0])
+      plt.close()
 
     if hist_img is not None:
-        stats_img = self.utils.combine_images(stats_img, hist_img)
+      stats_img = self.utils.combine_images(stats_img, hist_img)
 
     if stats_img is not None:
-        stats_binary = self.utils.image_to_binary(stats_img)
-        if missing_users_str is None:
-            await ctx.reply(file=discord.File(fp=stats_binary, filename='image.png'))
-        else:
-            await ctx.reply(missing_users_str, file=discord.File(fp=stats_binary, filename='image.png'))
+      stats_binary = self.utils.image_to_binary(stats_img)
+      if missing_users_str is None:
+        await ctx.reply(file=discord.File(fp=stats_binary, filename='image.png'))
+      else:
+        await ctx.reply(missing_users_str, file=discord.File(fp=stats_binary, filename='image.png'))
     else:
-        await ctx.reply("Sorry, an error occurred while trying to fetch stats.")
+      await ctx.reply("Sorry, an error occurred while trying to fetch stats.")
 
   ######################
   #   OWNER METHODS    #
@@ -340,13 +343,13 @@ class WordleCommandHandler(BaseCommandHandler):
 
   async def remove_entry(self, ctx: commands.Context, *args: str) -> None:
     if len(args) == 1 and self.utils.is_user(args[0]):
-      user_id = args[0].strip("<@!> ")
+      user_id = int(args[0].strip("<@!> "))
       puzzle_id = self.db.get_puzzle_by_date(self.utils.get_todays_date())
     elif len(args) == 1 and re.match(r"^[#]?\d+$", args[0]):
-      user_id = str(ctx.author.id)
+      user_id = ctx.author.id
       puzzle_id = int(args[0].strip("# "))
     elif len(args) == 2 and self.utils.is_user(args[0]) and re.match(r"^[#]?\d+$", args[1]):
-      user_id = args[0].strip("<@!> ")
+      user_id = int(args[0].strip("<@!> "))
       puzzle_id = int(args[1].strip("# "))
     else:
       await ctx.reply("Could not understand command. Try `?remove <user> <puzzle #>`.")
@@ -358,29 +361,21 @@ class WordleCommandHandler(BaseCommandHandler):
       else:
         await ctx.message.add_reaction('❌')
     else:
-      await ctx.reply(f"Could not find entry for Puzzle #{puzzle_id} for user <@{user_id}>.")
+      await ctx.reply(f"Could not find entry for Puzzle #{puzzle_id} and user <@{user_id}>.")
 
-  async def add_score(self, ctx: commands.Context, *args: str) -> None:
-    if args is not None and len(args) >= 4:
-      start_index = self.__get_puzzle_index(*args)
-      if self.utils.is_user(args[0]):
-        user_id = args[0].strip("<>@! ")
-        title = ' '.join(args[1:start_index])
-        content = '\n'.join(args[start_index:])
+  async def add_score(self, message: discord.Message | None, user: discord.User, *args: str) -> None:
+    self.utils.bot.logger.debug(f"Wordle->add_score() :: {message}\n{user}\n{args}")
+
+    if message is not None and args is not None:
+      puzzle_type = message.content.splitlines()[0].strip()
+      title = '\n'.join(message.content.splitlines()[:1])
+      content = '\n'.join(message.content.splitlines()[1:])
+      self.utils.bot.logger.debug(f"{puzzle_type}::{title}\n{content}\n")
+
+      if await self.db.add_entry(user, title, content, message.created_at):
+        await message.add_reaction('✅')
       else:
-        user_id = str(ctx.author.id)
-        title = ' '.join(args[0:start_index])
-        content = '\n'.join(args[start_index:])
-      if self.utils.is_wordle_submission(title):
-        if self.db.add_entry(user_id, title, content):
-          await ctx.message.add_reaction('✅')
-        else:
-          await ctx.message.add_reaction('❌')
+        await message.add_reaction('❌')
     else:
-      await ctx.reply("To manually add a Wordle score, please use `/add <user> <Wordle output>` (specifying a user is optional).")
-
-  def __get_puzzle_index(self, *args: str) -> int:
-    for i, arg in enumerate(args):
-      if '🟩' in arg or '🟨' in arg or '⬜' in arg or '⬛' in arg:
-        return i
-    return 0
+      self.utils.bot.logger.error(f"An error occurred...")
+    #   await ctx.reply("To manually add a Wordle score, please use `/add <user> <Wordle output>` (specifying a user is optional).")
