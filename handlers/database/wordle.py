@@ -16,8 +16,8 @@ class WordleDatabaseHandler(BaseDatabaseHandler):
     self.puzzle_name = PuzzleName.WORDLE.value.lower()
 
     # puzzles
-    self._arbitrary_date = date(2022, 1, 10)
-    self._arbitrary_date_puzzle = 205
+    self._arbitrary_date = date(2021, 6, 19)
+    self._arbitrary_date_puzzle = 2
 
   ####################
   #  PUZZLE METHODS  #
@@ -54,27 +54,33 @@ class WordleDatabaseHandler(BaseDatabaseHandler):
     total_green: int = puzzle.count('🟩')
     total_yellow: int = puzzle.count('🟨')
     total_other: int = puzzle.count('⬜') + puzzle.count('⬛')
-    self.utils.bot.logger.debug(f"{puzzle_id}\n{puzzle}\n{total_green}:{total_yellow}:{total_other}\n->{score}")
+    self.utils.bot.logger.debug(f"{puzzle_id}\n{puzzle}\n{total_green}g:{total_yellow}y:{total_other}o\n->{score}")
 
     await self.add_user_if_not_exists(user)
     user_id: int = user.id
 
-    if await self.entry_exists(user_id, puzzle_id):
-      self.utils.bot.logger.debug(f"Entry already exists for {user_id} and {puzzle_id}.")
-      await self.connection.execute(
-        f"update {self.puzzle_name} set score = ?, green = ?, yellow = ?, other = ? where user_id = ? and puzzle_id = ?",
-        (score, total_green, total_yellow, total_other, user_id, puzzle_id,)
-      )
-    else:
-      self.utils.bot.logger.debug(f"Adding entry for {user_id} and {puzzle_id}.")
-      await self.connection.execute(
-        f"insert into {self.puzzle_name} values (?,?,?,?,?,?,?,?)",
-        (puzzle_id, user_id, puzzle, score, total_green, total_yellow, total_other, datetime)
-      )
+    try:
+      if await self.entry_exists(user_id, puzzle_id):
+        self.utils.bot.logger.debug(f"Entry already exists for {user_id} and {puzzle_id}.")
+        await self.connection.execute(
+          f"update {self.puzzle_name} set score = ?, green = ?, yellow = ?, other = ? where user_id = ? and puzzle_id = ?",
+          (score, total_green, total_yellow, total_other, user_id, puzzle_id,)
+        )
+      else:
+        values = (puzzle_id, user_id, puzzle, score, total_green, total_yellow, total_other, datetime)
+        self.utils.bot.logger.debug(f"Adding entry for {user_id} and {puzzle_id}...")
+        self.utils.bot.logger.debug(values)
 
-    await self.connection.commit()
-    self.utils.bot.logger.debug(f"total_changes: {self.connection.total_changes}")
-    return self.connection.total_changes > 0
+        await self.connection.execute(
+          f"insert into {self.puzzle_name} values (?,?,?,?,?,?,?,?)",
+          values,
+        )
+
+      await self.connection.commit()
+      return True
+    except Exception as e:
+      self.utils.bot.logger.error(e)
+      return False
 
   ####################
   #  PLAYER METHODS  #
@@ -82,12 +88,18 @@ class WordleDatabaseHandler(BaseDatabaseHandler):
 
   async def get_entries_by_player(self, user_id: int, puzzle_list: list[int] = []) -> list[WordlePuzzleEntry]:
     if not puzzle_list or len(puzzle_list) == 0:
-      query = f"select puzzle_id, score, green, yellow, other from {self.puzzle_name} where user_id = {user_id} AND puzzle_name = {self.puzzle_name}"
+      query = f"select puzzle_id, score, green, yellow, other from {self.puzzle_name} where user_id = ?"
+      query_values = (user_id,)
     else:
       puzzle_list_str = ','.join([str(p_id) for p_id in puzzle_list])
-      query = f"select puzzle_id, score, green, yellow, other from {self.puzzle_name} where user_id = {user_id} and puzzle_id in ({puzzle_list_str})"
-    async with self.connection.execute_fetchall(query) as rows:
-      entries: list[WordlePuzzleEntry] = []
+      query = f"select puzzle_id, score, green, yellow, other from {self.puzzle_name} where user_id = ? and puzzle_id in (?)"
+      query_values = (user_id, puzzle_list_str,)
+
+    self.utils.bot.logger.debug(f"Wordle->Getting entries for user: <{user_id}>...")
+    entries: list[WordlePuzzleEntry] = []
+    async with self.connection.execute_fetchall(query, query_values) as rows:
       for row in rows:
+        self.utils.bot.logger.debug(f"row -> {row}")
         entries.append(WordlePuzzleEntry(row[0], user_id, row[1], row[2], row[3], row[4]))
-      return entries
+
+    return entries

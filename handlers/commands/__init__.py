@@ -22,7 +22,10 @@ class BaseCommandHandler(typing.Protocol):
 
   async def add_entry(self, user: discord.User | discord.Member, title: str, puzzle: str, datetime = None) -> bool:
     if not datetime:
-      datetime = self.utils.get_todays_date()
+      datetime = self.utils.convert_date_to_str(self.utils.get_todays_date())
+    else:
+      datetime = self.utils.convert_date_to_str(datetime)
+
     return await self.db.add_entry(user, title, puzzle, datetime)
 
   async def get_ranks(self, ctx: commands.Context, *args: str) -> None:

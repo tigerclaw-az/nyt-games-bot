@@ -102,12 +102,17 @@ class BotUtilities():
       return datetime.strptime(date_str, f'%m/%d/%y').date()
     elif re.match(r'^\d{1,2}/\d{1,2}/\d{4}$', date_str):
       return datetime.strptime(date_str, f'%m/%d/%Y').date()
+    elif re.match(r'^\d{4}-\d{1,2}-\d{1,2}$', date_str):
+      return datetime.strptime(date_str, f'%Y-%m-%d').date()
 
     raise ValueError(f"Invalid date format: {date_str}")
 
   # CONVERT
   def convert_date_to_str(self, query_date: date) -> str:
-    return query_date.strftime(f'%m/%d/%Y')
+    try:
+      return query_date.strftime(f'%Y-%m-%d')
+    except Exception as e:
+      raise e
 
   # DATA FRAME TO IMAGE
   def get_image_from_df(self, df) -> Image.Image:

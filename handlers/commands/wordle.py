@@ -173,9 +173,9 @@ class WordleCommandHandler(BaseCommandHandler):
 
   async def get_entries(self, ctx: commands.Context, *args: str) -> None:
     if len(args) == 0:
-      user_id = str(ctx.author.id)
+      user_id = ctx.author.id
     elif len(args) == 1 and self.utils.is_user(args[0]):
-      user_id = args[0].strip("<@!> ")
+      user_id = int(args[0].strip("<@!> "))
     else:
       await ctx.reply("Couldn't understand command. Try `?help entries`.")
       return
@@ -183,21 +183,33 @@ class WordleCommandHandler(BaseCommandHandler):
     if user_id in await self.db.get_all_players():
       found_puzzles: list[str] = [str(p_id) for p_id in await self.db.get_puzzles_by_player(user_id)]
       if len(found_puzzles) == 0:
-        await ctx.reply(f"Couldn't find any recorded entries for <@{user_id}>.")
+        await ctx.reply(
+          f"Couldn't find any recorded entries for <@{user_id}>.",
+          delete_after=60,
+          ephemeral=True,
+        )
       elif len(found_puzzles) < 50:
-        await ctx.reply(f"{len(found_puzzles)} entries found:\n#{', #'.join(found_puzzles)}\nUse `?view <puzzle #>` to see details of a submission.")
+        await ctx.reply(
+          f"{len(found_puzzles)} entries found:\n#{', #'.join(found_puzzles)}\nUse `?view <puzzle #>` to see details of a submission."
+        )
       else:
-        await ctx.reply(f"{len(found_puzzles)} entries found, too many to display. First 10 and last 10:\n#{', #'.join(found_puzzles[:10])} ... #{', #'.join(found_puzzles[-10:])}\nUse `?view <puzzle #>` to see details of a submission.")
+        await ctx.reply(
+          f"{len(found_puzzles)} entries found, too many to display. First 10 and last 10:\n#{', #'.join(found_puzzles[:10])} ... #{', #'.join(found_puzzles[-10:])}\nUse `?view <puzzle #>` to see details of a submission.",
+        )
     else:
-      await ctx.reply(f"Couldn't find any recorded entries for <@{user_id}>.")
+      await ctx.reply(
+        f"Couldn't find any recorded entries for <@{user_id}>.",
+        delete_after=60,
+        ephemeral=True
+      )
 
   async def get_entry(self, ctx: commands.Context, *args: str) -> None:
     if len(args) >= 1:
       if self.utils.is_user(args[0]):
-        user_id = args[0].strip("<@!> ")
+        user_id = int(args[0].strip("<@!> "))
         query_args = args[1:]
       else:
-        user_id = str(ctx.author.id)
+        user_id = ctx.author.id
         query_args = args
 
       puzzle_ids = []
@@ -222,23 +234,23 @@ class WordleCommandHandler(BaseCommandHandler):
           if entry.puzzle_id == puzzle_id:
             score_str = 'X' if entry.score == 7 else str(entry.score)
             df.loc[i] = [
-                self.utils.get_nickname(user_id),
-                f"#{puzzle_id}",
-                f"{score_str}/6",
-                entry.green,
-                entry.yellow,
-                entry.other
+              ctx.author.display_name,
+              f"#{puzzle_id}",
+              f"{score_str}/6",
+              entry.green,
+              entry.yellow,
+              entry.other
             ]
             found_match = True
             break
         if not found_match:
           df.loc[i] = [
-              self.utils.get_nickname(user_id),
-              f"#{puzzle_id}",
-              "?/6",
-              "?",
-              "?",
-              "?"
+            ctx.author.display_name,
+            f"#{puzzle_id}",
+            "?/6",
+            "?",
+            "?",
+            "?"
           ]
       entries_img = self.utils.get_image_from_df(df)
       if entries_img is not None:
@@ -282,7 +294,7 @@ class WordleCommandHandler(BaseCommandHandler):
       puzzle_list: list[int] = await self.db.get_puzzles_by_player(user_id)
       player_stats: WordlePlayerStats = await self.player_stats.initialize(user_id, puzzle_list, self.db)
       df.loc[i] = [
-        self.utils.get_nickname(user_id),
+        ctx.author.display_name,
         f"{player_stats.raw_mean:.4f}",
         f"{player_stats.avg_green:.4f}",
         f"{player_stats.avg_yellow:.4f}",
@@ -300,7 +312,7 @@ class WordleCommandHandler(BaseCommandHandler):
 
       df = pd.DataFrame(columns=['Player', 'Score', 'Count'])
       for i, user_id in enumerate(user_ids):
-        user_name = self.utils.get_nickname(user_id)
+        user_name = ctx.author.display_name
         if user_name is None:
           continue
         score_counts = [0] * len(valid_scores)
@@ -372,7 +384,7 @@ class WordleCommandHandler(BaseCommandHandler):
       content = '\n'.join(message.content.splitlines()[1:])
       self.utils.bot.logger.debug(f"{puzzle_type}::{title}\n{content}\n")
 
-      if await self.db.add_entry(user, title, content, message.created_at):
+      if await self.add_entry(user, title, content, message.created_at):
         await message.add_reaction('✅')
       else:
         await message.add_reaction('❌')

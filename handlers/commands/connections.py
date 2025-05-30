@@ -163,9 +163,9 @@ class ConnectionsCommandHandler(BaseCommandHandler):
 
   async def get_entries(self, ctx: commands.Context, *args: str) -> None:
     if len(args) == 0:
-      user_id = str(ctx.author.id)
+      user_id = ctx.author.id
     elif len(args) == 1 and self.utils.is_user(args[0]):
-      user_id = args[0].strip("<@!> ")
+      user_id = int(args[0].strip("<@!> "))
     else:
       await ctx.reply("Couldn't understand command. Try `/help entries`.")
       return
@@ -182,140 +182,167 @@ class ConnectionsCommandHandler(BaseCommandHandler):
       await ctx.reply(f"Couldn't find any recorded entries for <@{user_id}>.")
 
   async def get_entry(self, ctx: commands.Context, *args: str) -> None:
-      if len(args) >= 1:
-          if self.utils.is_user(args[0]):
-              user_id = args[0].strip("<@!> ")
-              query_args = args[1:]
-          else:
-              user_id = str(ctx.author.id)
-              query_args = args
-          puzzle_ids = []
-          for arg in query_args:
-              if re.match(r'^[#]?\d+$', arg):
-                  puzzle_ids.append(int(arg.strip("# ")))
-              else:
-                  await ctx.reply(f"Couldn't understand command. Try `/help view`.")
-                  return
+    if len(args) >= 1:
+      if self.utils.is_user(args[0]):
+        user_id = int(args[0].strip("<@!> "))
+        query_args = args[1:]
       else:
+        user_id = ctx.author.id
+        query_args = args
+
+      puzzle_ids = []
+      for arg in query_args:
+        if re.match(r'^[#]?\d+$', arg):
+          puzzle_ids.append(int(arg.strip("# ")))
+        else:
           await ctx.reply(f"Couldn't understand command. Try `/help view`.")
           return
+    else:
+      await ctx.reply(f"Couldn't understand command. Try `/help view`.")
+      return
 
-      puzzle_ids.sort()
+    puzzle_ids.sort()
 
-      if user_id in await self.db.get_all_players():
-          user_puzzles: list[ConnectionsPuzzleEntry] = await self.db.get_entries_by_player(user_id)
-          df = pd.DataFrame(columns=['User', 'Puzzle', 'Score'])
-          for i, puzzle_id in enumerate(puzzle_ids):
-              found_match = False
-              for entry in user_puzzles:
-                  if entry.puzzle_id == puzzle_id:
-                      score_str = 'X' if entry.score == 8 else str(entry.score)
-                      df.loc[i] = [
-                          self.utils.get_nickname(user_id),
-                          f"#{puzzle_id}",
-                          f"{score_str}/7",
-                      ]
-                      found_match = True
-                      break
-              if not found_match:
-                  df.loc[i] = [
-                      self.utils.get_nickname(user_id),
-                      f"#{puzzle_id}",
-                      "?/7",
-                  ]
-          entries_img = self.utils.get_image_from_df(df)
-          if entries_img is not None:
-              with io.BytesIO() as image_binary:
-                  entries_img.save(image_binary, 'PNG')
-                  image_binary.seek(0)
-                  await ctx.reply(file=discord.File(fp=image_binary, filename='image.png'))
-          else:
-              await ctx.reply("Sorry, failed to fetch stats.")
+    if user_id in await self.db.get_all_players():
+      user_puzzles: list[ConnectionsPuzzleEntry] = await self.db.get_entries_by_player(user_id)
+      df = pd.DataFrame(columns=['User', 'Puzzle', 'Score'])
+      for i, puzzle_id in enumerate(puzzle_ids):
+        found_match = False
+        for entry in user_puzzles:
+          if entry.puzzle_id == puzzle_id:
+            score_str = 'X' if entry.score == 8 else str(entry.score)
+            df.loc[i] = [
+              ctx.author.display_name,
+              f"#{puzzle_id}",
+              f"{score_str}/7",
+            ]
+            found_match = True
+            break
+
+        if not found_match:
+          df.loc[i] = [
+            ctx.author.display_name,
+            f"#{puzzle_id}",
+            "?/7",
+          ]
+
+      entries_img = self.utils.get_image_from_df(df)
+      if entries_img is not None:
+        with io.BytesIO() as image_binary:
+          entries_img.save(image_binary, 'PNG')
+          image_binary.seek(0)
+          await ctx.reply(file=discord.File(fp=image_binary, filename='image.png'))
       else:
-          await ctx.reply(f"No records found for user <@{user_id}>.")
+        await ctx.reply(
+          "Sorry, failed to fetch stats.",
+          delete_after=60,
+          ephemeral=True,
+        )
+
+    else:
+      await ctx.reply(
+        f"No records found for user <@{user_id}>.",
+        delete_after=60,
+        ephemeral=True,
+      )
 
   async def get_stats(self, ctx: commands.Context, *args: str) -> None:
-      user_ids: list[int] = []
-      unknown_ids: list[int] = []
-      missing_users_str = None
-      if len(args) == 0:
-        user_ids = [ctx.author.id]
-      else:
-        for arg in args:
-          if self.utils.is_user(arg):
-            user_id = int(arg.strip("<@!> "))
-            if user_id in await self.db.get_all_players():
-              user_ids.append(user_id)
-            else:
-              unknown_ids.append(user_id)
+    user_ids: list[int] = []
+    unknown_ids: list[int] = []
+    missing_users_str = None
+    if len(args) == 0:
+      user_ids = [ctx.author.id]
+    else:
+      for arg in args:
+        if self.utils.is_user(arg):
+          user_id = int(arg.strip("<@!> "))
+          if user_id in await self.db.get_all_players():
+            user_ids.append(user_id)
           else:
-            await ctx.reply("Couldn't understand command. Try `?help <stats>`.")
-            return
-        if len(unknown_ids) > 0:
-          ids_list = map(str, unknown_ids)
-          if len(user_ids) > 0:
-            missing_users_str = f"Couldn't find user(s): <@{'>, <@'.join(ids_list)}>"
-          else:
-            await ctx.reply(f"Couldn't find user(s): <@{'>, <@'.join(ids_list)}>")
-            return
+            unknown_ids.append(user_id)
+        else:
+          await ctx.reply(
+            f"Couldn't understand command. Try `/help <stats>`.",
+            delete_after=60,
+            ephemeral=True,
+          )
+          return
+      if len(unknown_ids) > 0:
+        ids_list = map(str, unknown_ids)
+        if len(user_ids) > 0:
+          missing_users_str = f"Couldn't find user(s): <@{'>, <@'.join(ids_list)}>"
+        else:
+          await ctx.reply(
+            f"Couldn't find user(s): <@{'>, <@'.join(ids_list)}>",
+            delete_after=90,
+            ephemeral=True,
+          )
+          return
 
-      df = pd.DataFrame(columns=['User', 'Avg Score', '🧩', '🚫'])
+    df = pd.DataFrame(columns=['User', 'Avg Score', '🧩', '🚫'])
+    for i, user_id in enumerate(user_ids):
+      puzzle_list: list[int] = await self.db.get_puzzles_by_player(user_id)
+      player_stats: ConnectionsPlayerStats = await self.player_stats.initialize(user_id, puzzle_list, self.db)
+      df.loc[i] = [
+        ctx.author.display_name,
+        f"{player_stats.raw_mean:.4f}",
+        len(puzzle_list),
+        len(await self.db.get_all_puzzles()) - len(puzzle_list),
+      ]
+
+    stats_img = self.utils.get_image_from_df(df)
+
+    hist_img = None
+    if len(user_ids) < 5:
+      valid_scores = ['4/7', '5/7', '6/7', '7/7', 'X/7']
+      plt.rcParams.update({'font.size': 20})
+
+      df = pd.DataFrame(columns=['Player', 'Score', 'Count'])
       for i, user_id in enumerate(user_ids):
-        puzzle_list: list[int] = await self.db.get_puzzles_by_player(user_id)
-        player_stats: ConnectionsPlayerStats = await self.player_stats.initialize(user_id, puzzle_list, self.db)
-        df.loc[i] = [
-            self.utils.get_nickname(user_id),
-            f"{player_stats.raw_mean:.4f}",
-            len(puzzle_list),
-            len(await self.db.get_all_puzzles()) - len(puzzle_list),
-        ]
+        user_name = ctx.author.display_name
+        if user_name is None:
+          continue
 
-      stats_img = self.utils.get_image_from_df(df)
+        score_counts = [0] * len(valid_scores)
+        entries: list[ConnectionsPuzzleEntry] = await self.db.get_entries_by_player(user_id)
+        for score in [entry.score for entry in entries]:
+          score_counts[score - 4] += 1
 
-      hist_img = None
-      if len(user_ids) < 5:
-          valid_scores = ['4/7', '5/7', '6/7', '7/7', 'X/7']
-          plt.rcParams.update({'font.size': 20})
+        for j in range(0, len(valid_scores)):
+          df.loc[i*len(valid_scores) + j] = [
+            self.utils.remove_emojis(user_name),
+            valid_scores[j],
+            score_counts[j]
+          ]
 
-          df = pd.DataFrame(columns=['Player', 'Score', 'Count'])
-          for i, user_id in enumerate(user_ids):
-            user_name = self.utils.get_nickname(user_id)
-            if user_name is None:
-              continue
+      g = sns.catplot(x='Score', y='Count', hue='Player', data=df, kind='bar')
+      for ax in g.axes.ravel():
+        for c in ax.containers:
+          labels = ['%d' % v.get_height() for v in c]
+          ax.bar_label(c, labels=labels, label_type='edge', fontsize=15)
 
-            score_counts = [0] * len(valid_scores)
-            entries: list[ConnectionsPuzzleEntry] = await self.db.get_entries_by_player(user_id)
-            for score in [entry.score for entry in entries]:
-              score_counts[score - 4] += 1
-            for j in range(0, len(valid_scores)):
-              df.loc[i*len(valid_scores) + j] = [
-                  self.utils.remove_emojis(user_name),
-                  valid_scores[j],
-                  score_counts[j]
-              ]
-          g = sns.catplot(x='Score', y='Count', hue='Player', data=df, kind='bar')
-          for ax in g.axes.ravel():
-              for c in ax.containers:
-                  labels = ['%d' % v.get_height() for v in c]
-                  ax.bar_label(c, labels=labels, label_type='edge', fontsize=15)
-          fig: Figure = plt.gcf()
-          fig.subplots_adjust(bottom=0.2)
-          fig.set_size_inches(10, 5)
-          hist_img = self.utils.fig_to_image(fig)
-          hist_img = self.utils.resize_image(hist_img, width = stats_img.size[0])
-          plt.close()
+      fig: Figure = plt.gcf()
+      fig.subplots_adjust(bottom=0.2)
+      fig.set_size_inches(10, 5)
+      hist_img = self.utils.fig_to_image(fig)
+      hist_img = self.utils.resize_image(hist_img, width = stats_img.size[0])
+      plt.close()
 
-      if hist_img is not None:
-          stats_img = self.utils.combine_images(stats_img, hist_img)
+    if hist_img is not None:
+      stats_img = self.utils.combine_images(stats_img, hist_img)
 
-      if stats_img is not None:
-          stats_binary = self.utils.image_to_binary(stats_img)
-          if missing_users_str is None:
-              await ctx.reply(file=discord.File(fp=stats_binary, filename='image.png'))
-          else:
-              await ctx.reply(missing_users_str, file=discord.File(fp=stats_binary, filename='image.png'))
+    if stats_img is not None:
+      stats_binary = self.utils.image_to_binary(stats_img)
+      if missing_users_str is None:
+        await ctx.reply(file=discord.File(fp=stats_binary, filename='image.png'))
       else:
-          await ctx.reply("Sorry, an error occurred while trying to fetch stats.")
+        await ctx.reply(missing_users_str, file=discord.File(fp=stats_binary, filename='image.png'))
+    else:
+      await ctx.reply(
+        "Sorry, an error occurred while trying to fetch stats.",
+        delete_after=120,
+        ephemeral=True,
+      )
 
   ######################
   #   OWNER METHODS    #
@@ -352,7 +379,7 @@ class ConnectionsCommandHandler(BaseCommandHandler):
       content = '\n'.join(message.content.splitlines()[2:])
       self.utils.bot.logger.debug(f"{puzzle_type}::{title}\n{content}\n")
 
-      if await self.db.add_entry(user, title, content, message.created_at):
+      if await self.add_entry(user, title, content, message.created_at):
         await message.add_reaction('✅')
       else:
         await message.add_reaction('❌')

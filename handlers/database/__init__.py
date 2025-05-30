@@ -23,7 +23,7 @@ class BaseDatabaseHandler(typing.Protocol):
   # ABSTRACT METHODS #
   ####################
 
-  async def add_entry(self, user: discord.User | discord.Member, title: str, puzzle: str, datetime: date) -> bool: # type: ignore
+  async def add_entry(self, user: discord.User | discord.Member, title: str, puzzle: str, datetime: str) -> bool: # type: ignore
     pass
 
   async def get_entries_by_player[T](self, user_id: int, puzzle_list: list[int] = []) -> list[T]: # type: ignore
@@ -104,7 +104,7 @@ class BaseDatabaseHandler(typing.Protocol):
       self.utils.bot.logger.debug(f"get_all_players():: {rows}")
       return [row[0] for row in rows]
 
-  async def get_puzzles_by_player(self, user_id) -> list[int]:
+  async def get_puzzles_by_player(self, user_id: int) -> list[int]:
     async with self.connection.execute_fetchall(
       f"select distinct puzzle_id from {self.puzzle_name} where user_id = ?",
       (user_id,)

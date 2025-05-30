@@ -2,6 +2,8 @@ import discord, re
 from collections import Counter
 from datetime import date
 
+from numpy import True_
+
 from handlers.database import BaseDatabaseHandler
 from models import PuzzleName
 from models.connections import ConnectionsPuzzleEntry
@@ -16,8 +18,8 @@ class ConnectionsDatabaseHandler(BaseDatabaseHandler):
     self.puzzle_name = PuzzleName.CONNECTIONS.value.lower()
 
     # puzzles
-    self._arbitrary_date = date(2024, 1, 7)
-    self._arbitrary_date_puzzle = 210
+    self._arbitrary_date = date(2023, 6, 12)
+    self._arbitrary_date_puzzle = 2
 
   ####################
   #  PUZZLE METHODS  #
@@ -36,22 +38,27 @@ class ConnectionsDatabaseHandler(BaseDatabaseHandler):
     await self.add_user_if_not_exists(user)
     user_id: int = user.id
 
-    if await self.entry_exists(user_id, puzzle_id):
-      self.utils.bot.logger.debug(f"Entry already exists for {user_id} and {puzzle_id}.")
-      await self.connection.execute(
-        f"update {self.puzzle_name} set score = ? where user_id = ? and puzzle_id = ?",
-        (score, user_id, puzzle_id,)
-      )
-    else:
-      self.utils.bot.logger.debug(f"Adding entry for {user_id} and {puzzle_id}.")
-      await self.connection.execute(
-        f"insert into {self.puzzle_name} values (?, ?, ?, ?, ?)",
-        (puzzle_id, user_id, puzzle, score, datetime,)
-      )
+    try:
+      if await self.entry_exists(user_id, puzzle_id):
+        self.utils.bot.logger.debug(f"Entry already exists for {user_id} and {puzzle_id}.")
+        await self.connection.execute(
+          f"update {self.puzzle_name} set score = ? where user_id = ? and puzzle_id = ?",
+          (score, user_id, puzzle_id,)
+        )
+      else:
+        values = (puzzle_id, user_id, puzzle, score, datetime,)
+        self.utils.bot.logger.debug(f"Adding entry for {user_id} and {puzzle_id}...")
+        self.utils.bot.logger.debug(values)
 
-    await self.connection.commit()
-    self.utils.bot.logger.debug(f"total_changes: {self.connection.total_changes}")
-    return self.connection.total_changes > 0
+        await self.connection.execute(
+          f"insert into {self.puzzle_name} values (?, ?, ?, ?, ?)",
+          values,
+        )
+
+      await self.connection.commit()
+      return True
+    except Exception as e:
+      return False
 
   ####################
   #  PLAYER METHODS  #
@@ -59,15 +66,21 @@ class ConnectionsDatabaseHandler(BaseDatabaseHandler):
 
   async def get_entries_by_player(self, user_id: int, puzzle_list: list[int] = []) -> list[ConnectionsPuzzleEntry]:
     if not puzzle_list or len(puzzle_list) == 0:
-      query = f"select puzzle_id, score, puzzle_str from {self.puzzle_name} where user_id = {user_id}"
+      query = f"select puzzle_id, score, puzzle_str from {self.puzzle_name} where user_id = ?"
+      query_values = (user_id,)
     else:
       puzzle_list_str = ','.join([str(p_id) for p_id in puzzle_list])
-      query = f"select puzzle_id, score, puzzle_str from {self.puzzle_name} where user_id = {user_id} and puzzle_id in ({puzzle_list_str})"
-    async with self.connection.execute_fetchall(query) as rows:
-      entries: list[ConnectionsPuzzleEntry] = []
+      query = f"select puzzle_id, score, puzzle_str from {self.puzzle_name} where user_id = ? and puzzle_id in (?)"
+      query_values = (user_id,puzzle_list_str,)
+
+    self.utils.bot.logger.debug(f"Connections->Getting entries for user: <{user_id}>...")
+    entries: list[ConnectionsPuzzleEntry] = []
+    async with self.connection.execute_fetchall(query, query_values) as rows:
       for row in rows:
+        self.utils.bot.logger.debug(f"row -> {row}")
         entries.append(ConnectionsPuzzleEntry(row[0], user_id, row[1], row[2]))
-      return entries
+
+    return entries
 
   ####################
   #  HELPER METHODS  #
