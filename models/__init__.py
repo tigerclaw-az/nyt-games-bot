@@ -1,5 +1,4 @@
 from enum import Enum, auto
-from turtle import pu
 from typing import Protocol
 
 class PuzzleName(Enum):

@@ -1,5 +1,4 @@
 import discord, re
-from turtle import pu
 from datetime import date
 
 from handlers.database import BaseDatabaseHandler
