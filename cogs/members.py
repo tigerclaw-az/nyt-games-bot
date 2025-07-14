@@ -84,13 +84,13 @@ class MembersCog(commands.Cog, name="members-cog"):
         await interaction.response.send_message(
           content=f"{puzzle_type} puzzle added succesfully!",
           ephemeral=True,
-          delete_after=30,
+          delete_after=5,
         )
       except Exception as e:
         await interaction.response.send_message(
           content=f"An error ocurred: {e}",
           ephemeral=True,
-          delete_after=30,
+          delete_after=60,
         )
 
 
