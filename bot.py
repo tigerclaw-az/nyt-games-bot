@@ -12,7 +12,11 @@ from utils.bot_utilities import BotUtilities, DiscordReactions
 from utils.help_handler import HelpMenuHandler
 
 # parse environment variables
-load_dotenv()
+try:
+  load_dotenv()
+except Exception as e:
+  print(".env file not found...")
+
 TOKEN = os.getenv('TOKEN', 'XXXX')
 DISCORD_ENV = os.getenv('DISCORD_ENV', 'prod')
 APPLICATION_ID = int(os.getenv('CLIENT_ID', -1))
@@ -282,7 +286,7 @@ class DiscordBot(commands.Bot):
             )
         elif isinstance(error, commands.MissingPermissions):
           embed = discord.Embed(
-            description=f"You are missing the permission(s) `{", ".join(error.missing_permissions)}` to execute this command!",
+            description=f"You are missing the permission(s) `{', '.join(error.missing_permissions)}` to execute this command!",
             color=0xE02B2B,
           )
           await context.send(embed=embed)
