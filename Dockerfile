@@ -1,13 +1,15 @@
-FROM python:3.12.10-slim-bookworm
+FROM python:3.12-slim
 
-WORKDIR /bot
-COPY . /bot
+WORKDIR /app
+COPY . /app
+RUN touch /app/discord.log
+
+RUN apt-get update && \
+  apt-get install -y --no-install-recommends build-essential python3-dev && \
+  apt-get clean
 
 # Install Python dependencies
-RUN python -m pip install -r requirements.txt && \
-	apt-get update && apt-get clean
-
-# Ensure the .env file is included in the container
-COPY .env /bot/.env
+RUN python -m pip install --upgrade pip setuptools wheel && \
+  python -m pip install --no-cache-dir -r requirements.txt
 
 ENTRYPOINT [ "python", "bot.py" ]
